@@ -1,8 +1,15 @@
-# 🎧 Olusia AI Studio 2.2.0
+# 🎧 Olusia AI Studio 2.3.0
 
 Prywatna aplikacja na MacBooka: wyciąganie MP3, izolacja głosu, lokalny Whisper, generowanie fiszek ze zdjęć i tekstu oraz osobna zakładka **🧠 Olusia Learning Plus**.
 
-## 🧠 Olusia Learning Plus — nowość
+## Nowość w 2.3.0 — punkty 3 i 6
+
+- **🎙️ Egzamin ustny:** w Learning Plus wybierz zestaw, nagraj odpowiedź na MacBooku; lokalny Whisper przepisze wypowiedź, a Ollama porówna ją z poprawioną odpowiedzią fiszki. Samodzielnie zatwierdzasz ocenę FSRS, bez automatycznego uznawania medycznych odpowiedzi za prawdziwe.
+- **🔎 Inteligentne nagrania:** w Audio → Transkrypcja AI pojawi się wyszukiwanie słów w fragmentach ze znacznikami czasu. Można odsłuchać i pobrać wybrany fragment MP3, zapisać zakładkę z własną notatką oraz wrócić do niej po ponownym wgraniu identycznego nagrania.
+- Dźwięk z mikrofonu nie jest archiwizowany, a pliki audio nie są automatycznie zapisywane na stałe. Zakładki przechowywane są lokalnie w `~/Library/Application Support/Olusia AI Studio/nagrania.sqlite3`.
+- **Ważne:** automatyczne porównanie odpowiedzi jest orientacyjne, zależy od jakości transkrypcji i wzorcowej fiszki; nie jest niezależną weryfikacją medyczną.
+
+## 🧠 Olusia Learning Plus
 
 - Oddzielna zakładka w tej samej aplikacji — nie instalujesz drugiego programu.
 - Przypisywanie istniejących zestawów do przedmiotów medycznych, np. anatomia, histologia, biochemia, fizjologia.
