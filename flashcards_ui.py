@@ -159,3 +159,114 @@ def render_flashcards() -> None:
                     delete_deck(deck_id)
                     st.success("Zestaw usunięty.")
                     st.rerun()
+
+
+
+def render_learning_plus() -> None:
+    """Learning Plus in its own tab; only existing flashcard decks are used."""
+    from cards import (
+        MEDICAL_SUBJECTS, RATING_LABELS, assign_medical_subject,
+        due_learning_cards, learning_summary, medical_decks, review_learning_card,
+    )
+    st.markdown("## 🧠 Olusia Learning Plus")
+    st.caption("Osobisty asystent nauki na lekarski • lokalne powtórki FSRS")
+    st.info("To narzędzie do nauki, nie do diagnozowania ani leczenia. Sprawdzaj treść fiszek z materiałami z uczelni.")
+    decks = medical_decks()
+    if not decks:
+        st.warning("Brak zestawów. Najpierw przygotuj i zapisz fiszki w zakładce **Fiszki AI**.")
+        return
+
+    subjects_tab, reviews_tab, stats_tab = st.tabs(
+        ["📚 Przedmioty", "🎯 Powtórki na dziś", "📊 Postępy"]
+    )
+
+    with subjects_tab:
+        st.markdown("#### Organizuj zestawy do nauki")
+        options = {f"{d['name']} · {d['subject']} · {d['total']} fiszek · #{d['id']}": d for d in decks}
+        key = st.selectbox("Wybierz zestaw", list(options), key="plus_deck")
+        deck = options[key]
+        subject = st.selectbox(
+            "Przedmiot", MEDICAL_SUBJECTS,
+            index=MEDICAL_SUBJECTS.index(deck["subject"]),
+            key=f"plus_subject_{deck['id']}"
+        )
+        if st.button("💾 Przypisz przedmiot", key="plus_assign"):
+            try:
+                assign_medical_subject(deck["id"], subject)
+                st.success("Zapisano. Zestaw jest dostępny do nauki z tego przedmiotu.")
+                st.rerun()
+            except CardsError as exc:
+                st.error(str(exc))
+        st.caption("Przedmioty porządkują już istniejące fiszki. Niczego nie usuwamy.")
+
+    with reviews_tab:
+        filter_name = st.selectbox(
+            "Wybierz materiał do powtórek",
+            ["Wszystkie przedmioty", *MEDICAL_SUBJECTS],
+            key="plus_review_subject"
+        )
+        filter_subject = None if filter_name == "Wszystkie przedmioty" else filter_name
+        summary = learning_summary(filter_subject)
+        a, b, c = st.columns(3)
+        a.metric("Do powtórzenia", summary["due"])
+        b.metric("Już ćwiczone", summary["studied"])
+        c.metric("Wszystkie fiszki", summary["total"])
+
+        due_cards = due_learning_cards(filter_subject, limit=100)
+        if not due_cards:
+            st.success("Dobra robota! Na razie nie masz zaległych powtórek. 🌱")
+        else:
+            card = due_cards[0]
+            st.caption(f"{card['subject']} · {card['deck_name']} · do {len(due_cards)} fiszek w kolejce")
+            st.markdown("#### Pytanie")
+            st.info(card["front"])
+            reveal_key = f"plus_revealed_{card['id']}"
+            if not st.session_state.get(reveal_key, False):
+                if st.button("👁️ Pokaż odpowiedź", key="plus_reveal"):
+                    st.session_state[reveal_key] = True
+                    st.rerun()
+            else:
+                st.success(card["back"])
+                st.markdown("**Oceń, jak zapamiętałaś odpowiedź:**")
+                cols = st.columns(4)
+                for index, (rating, label) in enumerate(RATING_LABELS.items()):
+                    if cols[index].button(label, key=f"plus_grade_{rating}", use_container_width=True):
+                        try:
+                            next_due = review_learning_card(card["id"], rating)
+                            st.session_state.pop(reveal_key, None)
+                            st.session_state["plus_latest"] = (label, next_due)
+                            st.rerun()
+                        except CardsError as exc:
+                            st.error(str(exc))
+                st.caption("FSRS obliczy termin kolejnej powtórki według Twojej historii odpowiedzi.")
+            latest = st.session_state.get("plus_latest")
+            if latest:
+                st.caption(f"Poprzednia ocena: {latest[0]}. Następna powtórka: {latest[1][:16].replace('T', ' ')} UTC.")
+            try:
+                import fsrs  # noqa: F401
+            except ImportError:
+                st.warning("Doinstaluj FSRS plikiem **5_DOINSTALUJ_FISZKI.command** i uruchom aplikację ponownie.")
+
+    with stats_tab:
+        filter_name = st.selectbox(
+            "Wybierz przedmiot",
+            ["Wszystkie przedmioty", *MEDICAL_SUBJECTS],
+            key="plus_stats_subject"
+        )
+        filter_subject = None if filter_name == "Wszystkie przedmioty" else filter_name
+        stats = learning_summary(filter_subject)
+        a, b, c = st.columns(3)
+        a.metric("Powtórki w 7 dni", stats["reviews_week"])
+        percent = round(100 * stats["remembered_week"] / stats["reviews_week"]) if stats["reviews_week"] else None
+        b.metric("Odpowiedzi Dobrze / Łatwe", f"{percent}%" if percent is not None else "—")
+        c.metric("Fiszki do powtórki", stats["due"])
+        if stats["daily_reviews"]:
+            rows = [{"Dzień": d, "Powtórki": n} for d, n in sorted(stats["daily_reviews"].items())]
+            st.bar_chart(rows, x="Dzień", y="Powtórki")
+        st.markdown("#### Najtrudniejsze pytania")
+        if stats["weak_questions"]:
+            for item in stats["weak_questions"]:
+                st.write(f"• **{item['front']}** — {item['difficult']}/{item['attempts']} trudnych odpowiedzi")
+        else:
+            st.caption("Trudne pytania pokażą się po co najmniej dwóch odpowiedziach na każdą fiszkę.")
+        st.caption("To tylko analiza powtórek, a nie ocena kompetencji klinicznych ani gwarancja zdania egzaminu.")
