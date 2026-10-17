@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import tempfile
 
 import streamlit as st
 
@@ -247,6 +249,9 @@ def render_learning_plus() -> None:
             except ImportError:
                 st.warning("Doinstaluj FSRS plikiem **5_DOINSTALUJ_FISZKI.command** i uruchom aplikację ponownie.")
 
+    with oral_tab:
+        render_oral_exam(decks)
+
     with stats_tab:
         filter_name = st.selectbox(
             "Wybierz przedmiot",
@@ -270,3 +275,80 @@ def render_learning_plus() -> None:
         else:
             st.caption("Trudne pytania pokażą się po co najmniej dwóch odpowiedziach na każdą fiszkę.")
         st.caption("To tylko analiza powtórek, a nie ocena kompetencji klinicznych ani gwarancja zdania egzaminu.")
+
+
+@st.cache_resource(show_spinner=False)
+def _oral_whisper():
+    """Use the installed local Whisper, without sending recorded voice to a cloud API."""
+    from faster_whisper import WhisperModel
+    return WhisperModel("base", device="cpu", compute_type="int8")
+
+
+def render_oral_exam(decks: list[dict]) -> None:
+    from cards import oral_feedback, review_learning_card, RATING_LABELS
+    st.markdown("#### 🎙️ Odpytaj mnie, Myszko!")
+    st.write("Wybierz zestaw, odpowiedz **głosem** lub tekstem, sprawdź swoją odpowiedź i ocenę AI na podstawie zapisanej fiszki.")
+    st.caption("Nagranie jest przetwarzane przez lokalny Whisper. Mikrofon wymaga zgody przeglądarki. AI może się mylić, szczególnie przy terminach medycznych.")
+    choices = {f"{d['subject']} · {d['name']} (#{d['id']})": d['id'] for d in decks if d['total']}
+    if not choices:
+        st.info("Dodaj najpierw fiszki w zakładce Fiszki AI.")
+        return
+    label = st.selectbox("Zestaw do egzaminu ustnego", choices, key="oral_deck_select")
+    deck_id = choices[label]
+    items = get_cards(deck_id)
+    if not items:
+        return
+    index_key = f"oral_question_idx_{deck_id}"
+    index = st.session_state.get(index_key, 0) % len(items)
+    card = items[index]
+    card_id = card['id']
+    st.caption(f"Pytanie {index+1} z {len(items)}. Odpowiedzi pozostają na tym MacBooku.")
+    st.info(card['front'])
+    if st.button("➡️ Kolejne pytanie", key="oral_next"):
+        st.session_state[index_key] = (index+1) % len(items)
+        st.session_state.pop("oral_feedback_result", None)
+        st.rerun()
+
+    recorded = st.audio_input("🎙️ Nagraj odpowiedź", key=f"oral_record_{card_id}")
+    answer_key = f"oral_answer_{card_id}"
+    if recorded is not None and st.button("📝 Przepisz nagraną odpowiedź", key="oral_transcribe"):
+        with st.spinner("Lokalny Whisper rozpoznaje wypowiedź…"):
+            try:
+                with tempfile.TemporaryDirectory(prefix="olusia-oral-") as folder:
+                    path = Path(folder) / "odpowiedz.wav"
+                    path.write_bytes(recorded.getvalue())
+                    if path.stat().st_size > 25 * 1024 * 1024:
+                        raise ValueError("Odpowiedź jest za duża. Nagraj krótszy fragment.")
+                    segments, _ = _oral_whisper().transcribe(str(path), language="pl", beam_size=5, vad_filter=True)
+                    st.session_state[answer_key] = " ".join(piece.text.strip() for piece in segments).strip()
+                st.session_state.pop("oral_feedback_result", None)
+                st.rerun()
+            except (OSError, ValueError, RuntimeError, ImportError) as exc:
+                st.error(f"Nie udało się rozpoznać mowy: {exc}")
+    answer = st.text_area("Twoja odpowiedź (możesz ją poprawić lub wpisać ręcznie)", key=answer_key, height=120)
+    if st.button("🧠 Porównaj odpowiedź z fiszką", disabled=not answer.strip(), key="oral_compare"):
+        try:
+            with st.spinner("Lokalne AI porównuje odpowiedź ze wzorcem…"):
+                result = oral_feedback(card['front'], card['back'], answer)
+                st.session_state['oral_feedback_result'] = {"card_id": card_id, **result}
+        except CardsError as exc:
+            st.warning(str(exc))
+    feedback = st.session_state.get('oral_feedback_result')
+    if feedback and feedback['card_id'] == card_id:
+        st.write(f"**Ocena orientacyjna AI:** {feedback['ocena']}")
+        st.write(feedback['komentarz'])
+    with st.expander("👁️ Pokaż poprawną odpowiedź z fiszki"):
+        st.success(card['back'])
+    st.markdown("**Oceń swoją pamięć, aby zaplanować powtórkę FSRS:**")
+    cols = st.columns(4)
+    for i, (rating, rating_label) in enumerate(RATING_LABELS.items()):
+        if cols[i].button(rating_label, key=f"oral_review_{rating}", use_container_width=True):
+            try:
+                review_learning_card(card_id, rating)
+                st.session_state[index_key] = (index+1) % len(items)
+                st.session_state.pop('oral_feedback_result', None)
+                st.success("Zapisano powtórkę.")
+                st.rerun()
+            except CardsError as exc:
+                st.error(str(exc))
+    st.caption("Porównanie AI jest wskazówką, a nie automatycznym zaliczeniem. Sprawdzaj informacje medyczne w wiarygodnych materiałach.")
