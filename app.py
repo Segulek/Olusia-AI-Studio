@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import atexit
+import html
 import os
 from pathlib import Path
 import shutil
@@ -24,36 +26,84 @@ ROOT = Path(__file__).resolve().parent
 STEM_PYTHON = ROOT / ".venv-isolation" / "bin" / "python"
 SUPPORTED = ["mp4", "mov", "m4v", "mkv", "webm", "avi", "mp3", "wav", "m4a", "aac", "flac", "ogg", "aiff"]
 
-st.set_page_config(page_title="Olusia AI Studio", page_icon="🎧", layout="wide", initial_sidebar_state="collapsed")
-
+st.set_page_config(
+    page_title="Olusia AI Studio • Twoja przestrzeń",
+    page_icon="🌷", layout="wide", initial_sidebar_state="collapsed"
+)
 st.markdown("""
 <style>
-  :root { color-scheme: dark; }
-  #MainMenu, footer {visibility: hidden;}
-  .block-container {padding-top: 2.0rem; padding-bottom: 3rem; max-width: 1120px;}
-  .hero {background:linear-gradient(120deg,#34224f,#211c3d 57%,#142a3a);border:1px solid #5e4a73;
-         border-radius:24px;padding:29px 34px;margin-bottom:22px;box-shadow:0 10px 38px #00000022;}
-  .hero h1 {color:#fff !important;font-size:2.5rem;letter-spacing:-.045em; margin:0 0 6px 0;}
-  .hero p {color:#dacde8;font-size:1.05rem;margin:0;}
-  .chip {display:inline-block; padding:5px 11px; border-radius:80px; background:#1d443d;
-         color:#a8f2c7; font-size:.79rem; border:1px solid #396459; margin-bottom:12px;}
-  .section-title {font-weight:700;font-size:1.1rem;margin:12px 0 2px;}
-  div[data-testid="stFileUploader"] {background:#22213a;border:1px dashed #a287c2;border-radius:16px;padding:10px;}
-  div.stButton > button[kind="primary"] {background:linear-gradient(95deg,#a855f7,#6366f1); color:white;
-      border:0; border-radius:11px; font-weight:700; padding:9px 22px;}
-  div.stDownloadButton button {border-radius:10px; border:1px solid #655985;}
-  [data-testid="stTabs"] [role="tab"] {font-weight:600;}
-  .note {color:#aeb4cf;font-size:.87rem;}
+  :root { color-scheme: light; }
+  html, body, [data-testid="stAppViewContainer"], .stApp {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #FAF8FD; color: #30283D;
+  }
+  .block-container {max-width: 1100px; padding-top: 1.15rem; padding-bottom: 3.5rem;}
+  #MainMenu, footer, [data-testid="stToolbar"] {visibility: hidden;}
+  .hero {background: linear-gradient(110deg,#F0E7F9 0%,#F9EFF6 52%,#EAF5EF 100%);
+    border: 1px solid #E3D6EE; border-radius: 25px; padding: 28px 32px;
+    margin-bottom: 20px; box-shadow: 0 13px 30px rgba(95,67,119,.055);}
+  .hero h1 {font-size: clamp(1.9rem,4vw,2.65rem);color:#432C58!important;
+    letter-spacing:-.035em;margin:3px 0 5px;font-weight:750;}
+  .hero p {font-size:1.04rem;color:#675A76;margin:0;max-width:700px;}
+  .eyebrow {font-size:.81rem;text-transform:uppercase;letter-spacing:.095em;
+    font-weight:750;color:#815FA6;}
+  .glass-card {background:white; border:1px solid #EAE3F0; border-radius:19px;
+    padding:21px 22px; box-shadow:0 5px 15px #705d8610; min-height:142px;}
+  .glass-card h3 {margin:.6rem 0 .3rem;font-size:1.12rem;color:#3E3052!important;}
+  .glass-card p {margin:0;font-size:.93rem;color:#6F627A;line-height:1.55;}
+  .section-soft {font-weight:700;font-size:1.17rem;color:#443253;margin:16px 0;}
+  div[data-testid="stFileUploader"] {background:white;border:1px dashed #AB90C5;
+    border-radius:19px;padding:13px;}
+  div[data-testid="stTabs"] button[role="tab"] {border-radius:12px;padding:10px 14px;
+    color:#5A496C;font-weight:650;}
+  div[data-testid="stTabs"] button[aria-selected="true"] {color:#65428E!important;}
+  div.stButton > button[kind="primary"], div.stDownloadButton button[kind="primary"] {
+    background:#8463AF;color:white;border:1px solid #8463AF;border-radius:13px;
+    font-weight:700;min-height:43px;
+  }
+  div.stButton > button {border-radius:12px;min-height:42px;}
+  [data-testid="stMetric"], [data-testid="stAlert"] {border-radius:14px;}
+  .stTextInput input, .stTextArea textarea {border-radius:12px;}
+  @media (max-width: 680px) {
+    .hero {padding:20px 18px;border-radius:19px;}
+    .block-container {padding-left:.85rem;padding-right:.85rem;}
+    .glass-card {min-height:auto;}
+  }
 </style>
 """, unsafe_allow_html=True)
-
 st.markdown("""
-<div class="hero">
-  <div class="chip">● Prywatne studio • AI na Twoim MacBooku</div>
-  <h1>🎧 Olusia AI Studio</h1>
-  <p>Audio, transkrypcje, fiszki i inteligentne powtórki medyczne. Prywatnie, na Twoim MacBooku.</p>
-</div>
+<section class="hero">
+  <div class="eyebrow">✦ Twoje prywatne miejsce do nauki</div>
+  <h1>🌷 Olusia AI Studio</h1>
+  <p>Ucz się we własnym rytmie. Zamieniaj nagrania w notatki,
+  twórz fiszki i wracaj do tego, co najważniejsze.</p>
+</section>
 """, unsafe_allow_html=True)
+
+
+def render_home() -> None:
+    st.markdown("### Cześć, Myszko! ♡")
+    st.write("Wybierz, od czego chcesz zacząć. Wszystkie materiały przetwarzamy na Twoim MacBooku.")
+    st.markdown("""
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;margin:20px 0">
+      <div class="glass-card"><div>🎧 <b>Nagrania</b></div>
+      <h3>Od wykładu do tekstu</h3><p>Wczytaj nagranie, pobierz MP3 lub przepisz wykład.</p></div>
+      <div class="glass-card"><div>📚 <b>Fiszki</b></div>
+      <h3>Ucz się w małych porcjach</h3><p>Wklej tekst albo dodaj zdjęcie notatek, a potem sprawdź odpowiedzi.</p></div>
+      <div class="glass-card"><div>🧠 <b>Learning Plus</b></div>
+      <h3>Twój plan powtórek</h3><p>Egzamin ustny, medyczne przedmioty i inteligentne powtórki.</p></div>
+    </div>
+    """, unsafe_allow_html=True)
+    try:
+        from cards import list_decks
+        decks = list_decks()
+        left, right = st.columns(2)
+        left.metric("📖 Zapisane zestawy", len(decks))
+        right.metric("✨ Przygotowane fiszki", sum(int(d["total"]) for d in decks))
+    except (OSError, ValueError, RuntimeError):
+        st.caption("Statystyki pojawią się po utworzeniu pierwszego zestawu.")
+    st.info("🌿 **Wskazówka:** przed egzaminem zacznij od zakładki „Learning Plus”. Jeśli dopiero zbierasz materiały, wybierz „Audio” lub „Fiszki”.")
+    st.caption("🔒 Działa lokalnie na tym MacBooku • bez konta • bez abonamentu za przetwarzanie")
 
 
 def remove_old_job() -> None:
@@ -99,11 +149,15 @@ def render_audio() -> None:
         st.markdown("<div class='note'>💡 Wskazówka: możesz najpierw wyciągnąć MP3, następnie odizolować głos, a na końcu zrobić transkrypcję.</div>", unsafe_allow_html=True)
         return
 
+    if uploaded.size > 250 * 1024 * 1024:
+        st.error("Ten plik jest zbyt duży (limit 250 MB). Podziel wykład na części.")
+        return
     buffer = uploaded.getbuffer()
     fingerprint = hashlib.sha256(buffer).hexdigest()
     if st.session_state.get("source_signature") != fingerprint:
         remove_old_job()
         job_dir = Path(tempfile.mkdtemp(prefix="olusia-studio-"))
+        job_dir.chmod(0o700)
         ext = Path(uploaded.name).suffix.lower()
         if ext.lstrip(".") not in SUPPORTED:
             st.error("Nieobsługiwany format pliku.")
@@ -111,6 +165,7 @@ def render_audio() -> None:
         source = job_dir / f"oryginal{ext}"
         with source.open("wb") as fp:
             fp.write(buffer)
+        source.chmod(0o600)
         st.session_state.update({
             "job_dir": str(job_dir), "input_file": str(source),
             "source_signature": fingerprint, "source_name": uploaded.name,
@@ -120,8 +175,14 @@ def render_audio() -> None:
     job = Path(st.session_state["job_dir"])
     source = Path(st.session_state["input_file"])
     duration = media_duration(source)
+    if duration is None or duration <= 0:
+        st.error("Nie udało się odczytać prawidłowego pliku multimedialnego. Sprawdź, czy zawiera dźwięk.")
+        return
+    if duration > 3 * 60 * 60:
+        st.error("Nagranie ma ponad 3 godziny. Podziel je na krótsze części.")
+        return
     name = st.session_state["source_name"]
-    st.success(f"✅ Dodano: **{name}** · {pretty_size(source.stat().st_size)}" +
+    st.success(f"✅ Dodano: **{html.escape(name)}** · {pretty_size(source.stat().st_size)}" +
                (f" · {duration / 60:.1f} min" if duration is not None else ""))
 
     st.markdown("#### 2. Wybierz, co chcesz zrobić")
@@ -298,7 +359,10 @@ def render_smart_recording(source: Path, job: Path, recording_sha: str, transcri
 
 
 
-tabs_audio, tabs_flash, tabs_plus, tabs_updates = st.tabs(["🎙️ Audio i transkrypcje", "📚 Fiszki AI", "🧠 Olusia Learning Plus", "🔄 Aktualizacje"])
+tab_home, tabs_audio, tabs_flash, tabs_plus, tabs_updates = st.tabs(["🏡 Start", "🎧 Audio", "📚 Fiszki", "🧠 Learning Plus", "⚙️ Aktualizacje"])
+
+with tab_home:
+    render_home()
 
 with tabs_audio:
     render_audio()
