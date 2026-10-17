@@ -1,0 +1,26 @@
+name: Testy zmian Olusia AI Studio
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Zainstaluj zależności testowe
+        run: |
+          python -m pip install -q pytest "fsrs>=6.0,<7"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+      - name: Sprawdź składnię i testy
+        run: |
+          python -m compileall -q app.py cards.py flashcards_ui.py updater.py
+          python -m pytest -q tests/test_cards_and_update.py tests/test_processor.py
