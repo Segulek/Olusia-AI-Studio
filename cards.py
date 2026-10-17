@@ -209,3 +209,176 @@ MATERIAŁ (dane do opracowania):
         raise CardsError("Nie mogę połączyć się z lokalną Ollamą. Sprawdź, czy jest uruchomiona (port 11434).") from exc
     except (ValueError, KeyError, TypeError) as exc:
         raise CardsError("AI zwróciło nieprawidłowy JSON. Spróbuj ponownie lub wybierz mocniejszy model.") from exc
+
+
+# Olusia Learning Plus: FSRS state is added to the existing database non-destructively.
+# This module deliberately stays in cards.py to allow direct 2.1.1 -> 2.2.0 updates.
+MEDICAL_SUBJECTS = (
+    "Bez przedmiotu", "Anatomia", "Histologia", "Embriologia",
+    "Biochemia", "Fizjologia", "Biologia molekularna", "Mikrobiologia",
+    "Immunologia", "Farmakologia", "Patomorfologia", "Patofizjologia", "Inne",
+)
+RATING_LABELS = {1: "Nie pamiętam", 2: "Trudne", 3: "Dobrze", 4: "Łatwe"}
+
+
+def _learning_database(db_path: Path = DEFAULT_DB):
+    con = _database(db_path)
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS learning_subjects (
+            deck_id INTEGER PRIMARY KEY REFERENCES decks(id) ON DELETE CASCADE,
+            subject TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS learning_schedule (
+            card_id INTEGER PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
+            card_json TEXT NOT NULL, due_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS learning_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_id INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+            rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 4),
+            reviewed_at TEXT NOT NULL, next_due_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_learning_reviews_time ON learning_reviews(reviewed_at);
+        CREATE INDEX IF NOT EXISTS idx_learning_schedule_due ON learning_schedule(due_at);
+    """)
+    return con
+
+
+def assign_medical_subject(deck_id: int, subject: str, db_path: Path = DEFAULT_DB) -> None:
+    if subject not in MEDICAL_SUBJECTS:
+        raise CardsError("Nieznany przedmiot.")
+    with _learning_database(db_path) as con:
+        if not con.execute("SELECT 1 FROM decks WHERE id=?", (deck_id,)).fetchone():
+            raise CardsError("Nie znaleziono zestawu fiszek.")
+        con.execute("""
+            INSERT INTO learning_subjects(deck_id, subject) VALUES (?, ?)
+            ON CONFLICT(deck_id) DO UPDATE SET subject=excluded.subject
+        """, (deck_id, subject))
+
+
+def medical_decks(db_path: Path = DEFAULT_DB) -> list[dict]:
+    with _learning_database(db_path) as con:
+        con.row_factory = sqlite3.Row
+        return [dict(r) for r in con.execute("""
+            SELECT d.id, d.name, COUNT(c.id) AS total,
+                   COALESCE(ls.subject, 'Bez przedmiotu') AS subject
+            FROM decks d LEFT JOIN cards c ON c.deck_id=d.id
+            LEFT JOIN learning_subjects ls ON ls.deck_id=d.id
+            GROUP BY d.id ORDER BY d.id DESC
+        """).fetchall()]
+
+
+def due_learning_cards(subject: str | None = None, db_path: Path = DEFAULT_DB,
+                       now: datetime | None = None, limit: int = 100) -> list[dict]:
+    if subject and subject not in MEDICAL_SUBJECTS:
+        raise CardsError("Nieznany przedmiot.")
+    now = now or datetime.now(timezone.utc)
+    if now.utcoffset() is None:
+        raise CardsError("Godzina powtórki musi mieć strefę czasową.")
+    with _learning_database(db_path) as con:
+        con.row_factory = sqlite3.Row
+        return [dict(r) for r in con.execute("""
+            SELECT c.id, c.front, c.back, d.name AS deck_name,
+                   COALESCE(ls.subject, 'Bez przedmiotu') AS subject,
+                   (sch.card_id IS NULL) AS is_new
+            FROM cards c JOIN decks d ON c.deck_id=d.id
+            LEFT JOIN learning_subjects ls ON ls.deck_id=d.id
+            LEFT JOIN learning_schedule sch ON sch.card_id=c.id
+            WHERE (sch.due_at IS NULL OR sch.due_at <= ?)
+              AND (? IS NULL OR COALESCE(ls.subject,'Bez przedmiotu')=?)
+            ORDER BY CASE WHEN sch.due_at IS NULL THEN 0 ELSE 1 END,
+                     sch.due_at, c.id LIMIT ?
+        """, (now.astimezone(timezone.utc).isoformat(), subject, subject,
+              max(1, min(limit, 500)))).fetchall()]
+
+
+def review_learning_card(card_id: int, rating: int, db_path: Path = DEFAULT_DB,
+                         now: datetime | None = None) -> str:
+    if rating not in RATING_LABELS:
+        raise CardsError("Nieprawidłowa ocena odpowiedzi.")
+    now = now or datetime.now(timezone.utc)
+    if now.utcoffset() is None:
+        raise CardsError("Godzina powtórki musi mieć strefę czasową.")
+    now = now.astimezone(timezone.utc)
+    try:
+        from fsrs import Card, Rating, Scheduler
+    except ImportError as exc:
+        raise CardsError("Brakuje FSRS. Uruchom 5_DOINSTALUJ_FISZKI.command i zrestartuj studio.") from exc
+    with _learning_database(db_path) as con:
+        if not con.execute("SELECT 1 FROM cards WHERE id=?", (card_id,)).fetchone():
+            raise CardsError("Nie znaleziono fiszki.")
+        saved = con.execute("SELECT card_json FROM learning_schedule WHERE card_id=?", (card_id,)).fetchone()
+        try:
+            card = Card.from_json(saved[0]) if saved else Card()
+            card, _ = Scheduler(enable_fuzzing=False).review_card(
+                card, Rating(rating), review_datetime=now
+            )
+            due_at = card.due.astimezone(timezone.utc).isoformat()
+            con.execute("""
+                INSERT INTO learning_schedule(card_id, card_json, due_at) VALUES (?, ?, ?)
+                ON CONFLICT(card_id) DO UPDATE SET
+                    card_json=excluded.card_json, due_at=excluded.due_at
+            """, (card_id, card.to_json(), due_at))
+            con.execute("""
+                INSERT INTO learning_reviews(card_id, rating, reviewed_at, next_due_at)
+                VALUES (?, ?, ?, ?)
+            """, (card_id, rating, now.isoformat(), due_at))
+        except (ValueError, TypeError, KeyError) as exc:
+            raise CardsError("Nie udało się zapisać powtórki FSRS.") from exc
+    return due_at
+
+
+def learning_summary(subject: str | None = None, db_path: Path = DEFAULT_DB,
+                     now: datetime | None = None) -> dict:
+    from datetime import timedelta
+    if subject and subject not in MEDICAL_SUBJECTS:
+        raise CardsError("Nieznany przedmiot.")
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    with _learning_database(db_path) as con:
+        vals = (subject, subject)
+        total = con.execute("""
+            SELECT COUNT(*) FROM cards c
+            LEFT JOIN learning_subjects ls ON ls.deck_id=c.deck_id
+            WHERE (? IS NULL OR COALESCE(ls.subject,'Bez przedmiotu')=?)
+        """, vals).fetchone()[0]
+        studied = con.execute("""
+            SELECT COUNT(*) FROM learning_schedule sch JOIN cards c ON sch.card_id=c.id
+            LEFT JOIN learning_subjects ls ON ls.deck_id=c.deck_id
+            WHERE (? IS NULL OR COALESCE(ls.subject,'Bez przedmiotu')=?)
+        """, vals).fetchone()[0]
+        due = con.execute("""
+            SELECT COUNT(*) FROM cards c
+            LEFT JOIN learning_subjects ls ON ls.deck_id=c.deck_id
+            LEFT JOIN learning_schedule sch ON sch.card_id=c.id
+            WHERE (sch.due_at IS NULL OR sch.due_at <= ?)
+              AND (? IS NULL OR COALESCE(ls.subject,'Bez przedmiotu')=?)
+        """, (now.isoformat(), *vals)).fetchone()[0]
+        logs = con.execute("""
+            SELECT r.rating, r.reviewed_at FROM learning_reviews r
+            JOIN cards c ON c.id=r.card_id
+            LEFT JOIN learning_subjects ls ON ls.deck_id=c.deck_id
+            WHERE r.reviewed_at >= ?
+              AND (? IS NULL OR COALESCE(ls.subject,'Bez przedmiotu')=?)
+            ORDER BY r.reviewed_at
+        """, ((now-timedelta(days=7)).isoformat(), *vals)).fetchall()
+        weak = con.execute("""
+            SELECT c.front, COUNT(*) AS attempts,
+              SUM(CASE WHEN r.rating IN (1,2) THEN 1 ELSE 0 END) AS difficult
+            FROM learning_reviews r JOIN cards c ON c.id=r.card_id
+            LEFT JOIN learning_subjects ls ON ls.deck_id=c.deck_id
+            WHERE (? IS NULL OR COALESCE(ls.subject,'Bez przedmiotu')=?)
+            GROUP BY r.card_id HAVING COUNT(*) >= 2
+            ORDER BY CAST(SUM(CASE WHEN r.rating IN (1,2) THEN 1 ELSE 0 END)
+              AS REAL)/COUNT(*) DESC, COUNT(*) DESC LIMIT 5
+        """, vals).fetchall()
+    days = {}
+    for _, ts in logs:
+        day=ts[:10]
+        days[day]=days.get(day,0)+1
+    return {
+        "total": total, "studied": studied, "due": due,
+        "reviews_week": len(logs),
+        "remembered_week": sum(rating >= 3 for rating, _ in logs),
+        "daily_reviews": days,
+        "weak_questions": [dict(front=r[0], attempts=r[1], difficult=r[2]) for r in weak],
+    }
