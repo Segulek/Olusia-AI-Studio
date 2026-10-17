@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import sqlite3
 from pathlib import Path
 import subprocess
 from typing import Iterable
@@ -118,3 +119,70 @@ def transcript_files(segments: Iterable[tuple[float, float, str]]) -> tuple[str,
         with_times.append(f"[{timestamp_readable(a)}] {text}")
         subtitles.append(f"{len(subtitles) + 1}\n{timestamp_srt(a)} --> {timestamp_srt(b)}\n{text}")
     return "\n".join(plain), "\n".join(with_times), "\n\n".join(subtitles) + ("\n" if subtitles else "")
+
+
+# Local recording bookmarks: only time markers and notes, never audio files.
+BOOKMARK_DB = Path.home() / "Library" / "Application Support" / "Olusia AI Studio" / "nagrania.sqlite3"
+
+
+def filter_segments(segments, search: str, maximum: int = 30) -> list[tuple[float, float, str]]:
+    """Find transcript chunks without network access; keep timestamps for seeking."""
+    phrase = search.strip().casefold()
+    return [(float(a), float(b), str(t)) for a, b, t in segments
+            if not phrase or phrase in str(t).casefold()][:max(1, min(100, maximum))]
+
+
+def clip_audio(source: Path, destination: Path, start: float, end: float) -> Path:
+    """Create a short playable MP3 preview, with strictly bounded time range."""
+    start, end = float(start), float(end)
+    if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start or end - start > 300:
+        raise ProcessingError("Wybierz poprawny fragment (maksymalnie 5 minut).")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+          "-ss", str(start), "-i", str(source), "-t", str(end-start),
+          "-map", "0:a:0", "-vn", "-codec:a", "libmp3lame",
+          "-b:a", "160k", str(destination)])
+    if not destination.is_file() or destination.stat().st_size == 0:
+        raise ProcessingError("Nie udało się wyciąć fragmentu nagrania.")
+    return destination
+
+
+def _bookmarks(db_path: Path):
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(db_path)
+    connection.execute("""CREATE TABLE IF NOT EXISTS recording_bookmarks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recording_sha TEXT NOT NULL,
+        title TEXT NOT NULL,
+        start REAL NOT NULL,
+        excerpt TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT ''
+    )""")
+    return connection
+
+
+def save_bookmark(recording_sha: str, title: str, start: float, excerpt: str,
+                  note: str = "", db_path: Path = BOOKMARK_DB) -> int:
+    import re
+    if not re.fullmatch(r"[a-f0-9]{64}", recording_sha):
+        raise ProcessingError("Niepoprawny identyfikator nagrania.")
+    if not math.isfinite(float(start)) or start < 0:
+        raise ProcessingError("Niepoprawny czas zakładki.")
+    with _bookmarks(db_path) as db:
+        cursor = db.execute("""INSERT INTO recording_bookmarks
+            (recording_sha,title,start,excerpt,note) VALUES (?,?,?,?,?)""",
+            (recording_sha, title[:150], float(start), excerpt[:1000], note[:250]))
+        return int(cursor.lastrowid)
+
+
+def get_bookmarks(recording_sha: str, db_path: Path = BOOKMARK_DB) -> list[dict]:
+    with _bookmarks(db_path) as db:
+        db.row_factory = sqlite3.Row
+        return [dict(row) for row in db.execute("""SELECT id,title,start,excerpt,note
+            FROM recording_bookmarks WHERE recording_sha=? ORDER BY start,id""", (recording_sha,))]
+
+
+def delete_bookmark(bookmark_id: int, recording_sha: str, db_path: Path = BOOKMARK_DB) -> None:
+    with _bookmarks(db_path) as db:
+        db.execute("DELETE FROM recording_bookmarks WHERE id=? AND recording_sha=?",
+                   (bookmark_id, recording_sha))

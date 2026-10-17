@@ -59,8 +59,8 @@ def test_updates_preserve_venvs_and_reject_older():
         (root / 'processor.py').write_text('core')
         (root / '.venv-core').mkdir()
         (root / '.venv-core' / 'secret').write_text('keep')
-        version = apply_update(_pack('2.3.0'), root)
-        assert version == '2.3.0'
+        version = apply_update(_pack('2.5.0'), root)
+        assert version == '2.5.0'
         assert (root / 'app.py').read_bytes() == b'updated'
         assert (root / '.venv-core' / 'secret').read_text() == 'keep'
         with pytest.raises(UpdateError):
@@ -95,16 +95,16 @@ def test_repo_settings_remain_outside_app_folder():
 def test_check_and_download_release_mocked():
     from updater import check_github_update, download_verified_update, UpdateError
     from unittest.mock import patch
-    payload = _pack('2.3.0', content=b'fresh')
+    payload = _pack('2.5.0', content=b'fresh')
     asset = {
-        'name': 'Olusia_AI_Studio_UPDATE_v2.3.0.zip',
-        'browser_download_url': 'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.3.0/Olusia_AI_Studio_UPDATE_v2.3.0.zip',
+        'name': 'Olusia_AI_Studio_UPDATE_v2.5.0.zip',
+        'browser_download_url': 'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.5.0/Olusia_AI_Studio_UPDATE_v2.5.0.zip',
         'digest': 'sha256:' + hashlib.sha256(payload).hexdigest(),
     }
-    result = {'tag_name':'v2.3.0', 'assets':[asset], 'body':'Nowa wersja'}
+    result = {'tag_name':'v2.5.0', 'assets':[asset], 'body':'Nowa wersja'}
     with patch('updater.urlopen', return_value=BytesIO(json.dumps(result).encode('utf-8'))):
         latest = check_github_update('Segulek/Olusia-AI-Studio')
-    assert latest['version'] == '2.3.0'
+    assert latest['version'] == '2.5.0'
     with patch('updater.urlopen', return_value=BytesIO(payload)):
         assert download_verified_update(latest) == payload
     latest['sha256'] = 'sha256:' + '0'*64
@@ -147,3 +147,17 @@ def test_real_fsrs_when_installed():
         assert datetime.fromisoformat(due) > now
         assert due_learning_cards(db_path=db, now=now) == []
         assert learning_summary(db_path=db, now=now)["reviews_week"] == 1
+
+
+
+def test_oral_feedback_from_local_ollama_and_no_automatic_rating():
+    from cards import oral_feedback
+    good = {'message':{'content':json.dumps({'ocena':'częściowa','komentarz':'Brakuje fragmentu o unerwieniu.'})}}
+    with patch('cards.urlopen', return_value=BytesIO(json.dumps(good).encode('utf-8'))) as transport:
+        result = oral_feedback('Jak unerwione?', 'Nerw twarzowy', 'Nerw')
+    assert result['ocena']=='częściowa'
+    request=transport.call_args.args[0]
+    assert request.full_url.startswith('http://127.0.0.1:11434/')
+    assert 'WZORZEC' in request.data.decode()
+    with pytest.raises(CardsError):
+        oral_feedback('Pytanie','Wzorzec','  ')
