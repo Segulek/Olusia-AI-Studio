@@ -1,14 +1,27 @@
-# Olusia AI Studio — aktualizacje przez GitHub
+# Olusia AI Studio — darmowe aktualizacje przez GitHub
 
-Repozytorium: https://github.com/Segulek/Olusia-AI-Studio
+Źródło: https://github.com/Segulek/Olusia-AI-Studio
 
-## Plan publikowania aktualizacji
+## Pierwsze wydanie (jednorazowo)
 
-1. Umieścić kompletny kod aplikacji na gałęzi `main`.
-2. Zachować prywatne zdjęcia, nagrania, transkrypcje, fiszki oraz lokalne modele poza repozytorium.
-3. Po dodaniu i sprawdzeniu workflow publikować wydania GitHub Releases (ZIP z manifestem i sumami SHA-256).
-4. W aplikacji wybierać `Aktualizacje → Sprawdź → Pobierz → Zainstaluj` po opublikowaniu nowej wersji.
+Użyj pliku `Olusia_AI_Studio_GitHub_v2.1.1.bundle` przygotowanego w rozmowie. Paczka jest archiwum ZIP z rozszerzeniem `.bundle`, aby uniknąć pomyłki z gotową aktualizacją. Publikujemy źródła bez prywatnych nagrań ani fiszek.
 
-**Stan:** integracja GitHub ma uprawnienie zapisu i zaakceptowała pierwszy commit. Kod aplikacji oraz automatyczna publikacja wydań muszą zostać jeszcze dodane i przetestowane; na razie nie zakładaj, że aktualizacje pobiorą się automatycznie.
+1. Dodaj plik do gałęzi `main` przez https://github.com/Segulek/Olusia-AI-Studio/upload/main
+2. Workflow `.github/workflows/import-source.yml` porównuje SHA-256 paczki, rozpakowuje wyłącznie dozwolone pliki i uruchamia testy.
+3. Jeśli testy przejdą, workflow zapisze kod w repozytorium, usunie plik `.bundle` i utworzy GitHub Release `v2.1.1`.
+4. Plik wydania `Olusia_AI_Studio_UPDATE_v2.1.1.zip` to aktualizacja z manifestem SHA-256 dla aplikacji Myszy.
 
-Kod i pliki instalacyjne nie mogą zawierać tokenów ani danych Olusi. GitHub publiczny pozwala każdemu oglądać opublikowane pliki.
+Kontroluj status w zakładce **Actions**. Do czasu zakończenia pracy nie ma jeszcze opublikowanego wydania.
+
+## Kolejne wersje
+
+Po uruchomieniu projektu zmień pliki w repozytorium i podnieś wersję równocześnie w `VERSION` i w `updater.py`. Przetestuj zmiany, a następnie wypchnij commit do `main`. Workflow `publish-release.yml` uruchomi testy i wystawi nowe wydanie. Istniejącego wydania nie nadpisuje.
+
+**W aplikacji:** zakładka **Aktualizacje** → **Sprawdź** → **Pobierz** → **Zainstaluj**, a potem ponowne uruchomienie.
+
+## Ważne
+
+- Modele AI, środowiska lokalne oraz zapisane fiszki nie są dołączane do repozytorium ani paczek aktualizacji.
+- GitHub Releases nie są niezależnym systemem podpisywania kodu; instaluj wyłącznie z zaufanego źródła.
+- Repozytorium jest publiczne. Nie przesyłaj sekretów ani danych osobowych.
+- GitHub udostępnia bezpłatny zakres usług, ale limity mogą się zmieniać.
