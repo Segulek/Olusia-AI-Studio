@@ -147,3 +147,17 @@ def test_real_fsrs_when_installed():
         assert datetime.fromisoformat(due) > now
         assert due_learning_cards(db_path=db, now=now) == []
         assert learning_summary(db_path=db, now=now)["reviews_week"] == 1
+
+
+
+def test_oral_feedback_from_local_ollama_and_no_automatic_rating():
+    from cards import oral_feedback
+    good = {'message':{'content':json.dumps({'ocena':'częściowa','komentarz':'Brakuje fragmentu o unerwieniu.'})}}
+    with patch('cards.urlopen', return_value=BytesIO(json.dumps(good).encode('utf-8'))) as transport:
+        result = oral_feedback('Jak unerwione?', 'Nerw twarzowy', 'Nerw')
+    assert result['ocena']=='częściowa'
+    request=transport.call_args.args[0]
+    assert request.full_url.startswith('http://127.0.0.1:11434/')
+    assert 'WZORZEC' in request.data.decode()
+    with pytest.raises(CardsError):
+        oral_feedback('Pytanie','Wzorzec','  ')
