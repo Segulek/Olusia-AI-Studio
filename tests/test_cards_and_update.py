@@ -59,8 +59,8 @@ def test_updates_preserve_venvs_and_reject_older():
         (root / 'processor.py').write_text('core')
         (root / '.venv-core').mkdir()
         (root / '.venv-core' / 'secret').write_text('keep')
-        version = apply_update(_pack('2.5.0'), root)
-        assert version == '2.5.0'
+        version = apply_update(_pack('2.6.0'), root)
+        assert version == '2.6.0'
         assert (root / 'app.py').read_bytes() == b'updated'
         assert (root / '.venv-core' / 'secret').read_text() == 'keep'
         with pytest.raises(UpdateError):
@@ -95,16 +95,16 @@ def test_repo_settings_remain_outside_app_folder():
 def test_check_and_download_release_mocked():
     from updater import check_github_update, download_verified_update, UpdateError
     from unittest.mock import patch
-    payload = _pack('2.5.0', content=b'fresh')
+    payload = _pack('2.6.0', content=b'fresh')
     asset = {
-        'name': 'Olusia_AI_Studio_UPDATE_v2.5.0.zip',
-        'browser_download_url': 'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.5.0/Olusia_AI_Studio_UPDATE_v2.5.0.zip',
+        'name': 'Olusia_AI_Studio_UPDATE_v2.6.0.zip',
+        'browser_download_url': 'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.6.0/Olusia_AI_Studio_UPDATE_v2.6.0.zip',
         'digest': 'sha256:' + hashlib.sha256(payload).hexdigest(),
     }
-    result = {'tag_name':'v2.5.0', 'assets':[asset], 'body':'Nowa wersja'}
+    result = {'tag_name':'v2.6.0', 'assets':[asset], 'body':'Nowa wersja'}
     with patch('updater.urlopen', return_value=BytesIO(json.dumps(result).encode('utf-8'))):
         latest = check_github_update('Segulek/Olusia-AI-Studio')
-    assert latest['version'] == '2.5.0'
+    assert latest['version'] == '2.6.0'
     with patch('updater.urlopen', return_value=BytesIO(payload)):
         assert download_verified_update(latest) == payload
     latest['sha256'] = 'sha256:' + '0'*64
@@ -161,3 +161,80 @@ def test_oral_feedback_from_local_ollama_and_no_automatic_rating():
     assert 'WZORZEC' in request.data.decode()
     with pytest.raises(CardsError):
         oral_feedback('Pytanie','Wzorzec','  ')
+
+
+
+def test_update_rejects_duplicate_members_and_symlinks():
+    raw = BytesIO()
+    with zipfile.ZipFile(raw, 'w') as archive:
+        data=b'test'
+        archive.writestr('manifest.json', json.dumps({
+            'app_id':'olusia-ai-studio','version':'2.6.0',
+            'files':{'app.py':hashlib.sha256(data).hexdigest()}
+        }))
+        archive.writestr('payload/app.py',data)
+        archive.writestr('payload/app.py',data)
+    with pytest.raises(UpdateError):
+        read_manifest(raw.getvalue())
+
+    raw=BytesIO()
+    with zipfile.ZipFile(raw,'w') as archive:
+        data=b'bad'
+        archive.writestr('manifest.json', json.dumps({
+            'app_id':'olusia-ai-studio','version':'2.6.0',
+            'files':{'app.py':hashlib.sha256(data).hexdigest()}
+        }))
+        info=zipfile.ZipInfo('payload/app.py')
+        info.create_system=3
+        info.external_attr=(0o120777 << 16)
+        archive.writestr(info,data)
+    with pytest.raises(UpdateError):
+        read_manifest(raw.getvalue())
+
+
+def test_update_rejects_directory_symlink_escape():
+    data=b'[server]\naddress="127.0.0.1"\n'
+    packed=BytesIO()
+    with zipfile.ZipFile(packed,'w') as archive:
+        archive.writestr('manifest.json',json.dumps({
+            'app_id':'olusia-ai-studio','version':'2.6.0',
+            'files':{'.streamlit/config.toml':hashlib.sha256(data).hexdigest()}
+        }))
+        archive.writestr('payload/.streamlit/config.toml',data)
+    with tempfile.TemporaryDirectory() as tmp:
+        root=Path(tmp)/'install'
+        root.mkdir()
+        (root/'app.py').write_text('original')
+        (root/'processor.py').write_text('original')
+        outside=Path(tmp)/'outside'
+        outside.mkdir()
+        (root/'.streamlit').symlink_to(outside,target_is_directory=True)
+        with pytest.raises(UpdateError):
+            apply_update(packed.getvalue(),root)
+        assert not (outside/'config.toml').exists()
+
+
+def test_update_publisher_is_pinned_and_csv_formula_safe():
+    from updater import validate_repo
+    assert validate_repo('Segulek/Olusia-AI-Studio')=='Segulek/Olusia-AI-Studio'
+    with pytest.raises(UpdateError):
+        validate_repo('untrusted/Olusia-AI-Studio')
+    exported=cards_as_csv([{'front':'=1+1','back':'@formula'}]).decode('utf-8-sig')
+    assert "'=1+1" in exported and "'@formula" in exported
+
+
+def test_database_file_permissions_are_private():
+    import os
+    with tempfile.TemporaryDirectory() as tmp:
+        db=Path(tmp)/'data'/'fiszki.sqlite3'
+        save_deck('Anatomia',[Flashcard('Czym jest komórka?','Podstawowa jednostka.')],db)
+        assert os.stat(db).st_mode & 0o077 == 0
+
+
+def test_missing_release_digest_is_rejected():
+    from updater import download_verified_update
+    v={'url':'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.6.0/Olusia_AI_Studio_UPDATE_v2.6.0.zip',
+       'version':'2.6.0', 'sha256':''}
+    with patch('updater.urlopen',return_value=BytesIO(_pack('2.6.0'))):
+        with pytest.raises(UpdateError):
+            download_verified_update(v)
