@@ -20,7 +20,7 @@ import zipfile
 
 SETTINGS_PATH = Path.home() / "Library" / "Application Support" / "Olusia AI Studio" / "updates.json"
 
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 DEFAULT_REPO = "Segulek/Olusia-AI-Studio"
 ALLOWED_FILES = {
     "app.py", "processor.py", "cards.py", "flashcards_ui.py", "ocr_local.py",
@@ -98,6 +98,11 @@ def apply_update(data: bytes, folder: Path, current_version: str = VERSION) -> s
     folder = folder.resolve()
     if not (folder / "app.py").is_file() or not (folder / "processor.py").is_file():
         raise UpdateError("Nie znaleziono zainstalowanej aplikacji w tym folderze.")
+    # A snapshot of the user databases is mandatory before touching program files.
+    try:
+        save_data_backup("before-update")
+    except BackupError as exc:
+        raise UpdateError("Nie udało się zrobić kopii danych przed aktualizacją: " + str(exc)) from exc
     with tempfile.TemporaryDirectory(prefix="olusia-upgrade-") as temp:
         temp_dir = Path(temp)
         backup = temp_dir / "backup"
@@ -224,3 +229,284 @@ def download_verified_update(release: dict) -> bytes:
         return contents
     except (HTTPError, URLError, TimeoutError, OSError) as exc:
         raise UpdateError("Nie udało się pobrać aktualizacji. Sprawdź internet.") from exc
+
+
+# Private, offline backups. Keep these helpers in updater.py so old installed
+# versions can receive them through the existing allowlisted ZIP updater.
+from datetime import datetime, timezone
+import sqlite3
+from urllib.parse import quote
+
+DATA_DIR = Path.home() / "Library" / "Application Support" / "Olusia AI Studio"
+DATABASE_NAMES = ("fiszki.sqlite3", "nagrania.sqlite3")
+MAX_DATABASE_BYTES = 64 * 1024 * 1024
+MAX_BACKUP_BYTES = 96 * 1024 * 1024
+BACKUP_FORMAT = "olusia-data-backup-v1"
+_ALLOWED_TABLES = {
+    "fiszki.sqlite3": {"decks", "cards", "learning_subjects", "learning_schedule",
+                       "learning_reviews", "sqlite_sequence"},
+    "nagrania.sqlite3": {"recording_bookmarks", "sqlite_sequence"},
+}
+
+
+class BackupError(RuntimeError):
+    """A recoverable error shown to the user without exposing file contents."""
+
+
+def _private_folder(folder: Path) -> None:
+    if folder.is_symlink() or folder.parent.is_symlink():
+        raise BackupError("Folder danych ma niebezpieczne dowiązanie symboliczne.")
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    folder.chmod(0o700)
+
+
+def _check_file(path: Path) -> None:
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise BackupError("Nieobsługiwany lub niebezpieczny plik danych.")
+    if path.exists() and path.stat().st_size > MAX_DATABASE_BYTES:
+        raise BackupError("Baza danych jest zbyt duża do bezpiecznego archiwum.")
+
+
+def _open_database(path: Path, readonly: bool = False) -> sqlite3.Connection:
+    if readonly:
+        encoded = quote(str(path.resolve()), safe="/")
+        return sqlite3.connect(f"file:{encoded}?mode=ro", uri=True, timeout=8)
+    return sqlite3.connect(str(path), timeout=8)
+
+
+def _check_database(path: Path, name: str) -> None:
+    """Validate contents as small, ordinary databases used by this application."""
+    if not path.is_file() or path.stat().st_size > MAX_DATABASE_BYTES:
+        raise BackupError("Baza danych w kopii ma nieprawidłowy rozmiar.")
+    try:
+        con = _open_database(path, readonly=True)
+        try:
+            con.execute("PRAGMA trusted_schema=OFF")
+            if con.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                raise BackupError("Kopia zawiera uszkodzoną bazę danych.")
+            objects = con.execute("SELECT type, name, sql FROM sqlite_master").fetchall()
+            if any(kind not in ("table", "index") for kind, _, _ in objects):
+                raise BackupError("Baza ma niedozwolone elementy schematu.")
+            tables = {name_in_db for kind, name_in_db, _ in objects if kind == "table"}
+            mandatory = {"decks", "cards"} if name == "fiszki.sqlite3" else {"recording_bookmarks"}
+            if not mandatory.issubset(tables) or tables - _ALLOWED_TABLES[name]:
+                raise BackupError("Nieprawidłowa struktura bazy danych.")
+            if any((sql or "").upper().lstrip().startswith("CREATE VIRTUAL TABLE")
+                   for _, _, sql in objects):
+                raise BackupError("Baza zawiera niedozwolone wirtualne tabele.")
+            if con.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                raise BackupError("Niespójne powiązania w bazie fiszek.")
+        finally:
+            con.close()
+    except BackupError:
+        raise
+    except sqlite3.Error as exc:
+        raise BackupError("Nie można otworzyć lub zweryfikować bazy danych.") from exc
+
+
+def _snapshot_database(source: Path, target: Path, name: str) -> None:
+    """SQLite online backup safely includes data present in any WAL journal."""
+    source_con = _open_database(source, readonly=True)
+    dest_con = _open_database(target)
+    try:
+        source_con.backup(dest_con, pages=128, sleep=0.05)
+    finally:
+        dest_con.close()
+        source_con.close()
+    target.chmod(0o600)
+    _check_database(target, name)
+
+
+def _available_databases(folder: Path) -> list[str]:
+    found = []
+    for name in DATABASE_NAMES:
+        source = folder / name
+        _check_file(source)
+        if source.exists():
+            found.append(name)
+    return found
+
+
+def create_data_backup(data_dir: Path | None = None) -> bytes:
+    """Create a consistent backup. No networks, models, passwords or audio files."""
+    folder = Path(data_dir) if data_dir is not None else DATA_DIR
+    names = _available_databases(folder)
+    if not names:
+        raise BackupError("Nie ma jeszcze zapisanych fiszek ani zakładek do zabezpieczenia.")
+    with tempfile.TemporaryDirectory(prefix="olusia-snapshot-") as temporary:
+        output = io.BytesIO()
+        recorded = {}
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+            for name in names:
+                snapshot = Path(temporary) / name
+                try:
+                    _snapshot_database(folder / name, snapshot, name)
+                except (sqlite3.Error, OSError) as exc:
+                    raise BackupError("Nie można utworzyć spójnej kopii bazy danych.") from exc
+                size = snapshot.stat().st_size
+                payload = snapshot.read_bytes()
+                recorded[name] = {"sha256": hashlib.sha256(payload).hexdigest(), "size": size}
+                archive.writestr("databases/" + name, payload)
+            manifest = {
+                "format": BACKUP_FORMAT,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "databases": recorded,
+            }
+            archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
+        if output.tell() > MAX_BACKUP_BYTES:
+            raise BackupError("Kopia przekracza limit 96 MB.")
+        return output.getvalue()
+
+
+def validate_data_backup(data: bytes) -> dict[str, bytes]:
+    """Validate the complete archive before any restoration takes place."""
+    if not isinstance(data, bytes) or not 0 < len(data) <= MAX_BACKUP_BYTES:
+        raise BackupError("Kopia jest pusta albo ma ponad 96 MB.")
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            names = archive.namelist()
+            if len(names) != len(set(names)) or "manifest.json" not in names:
+                raise BackupError("Kopia ma powtarzające się lub brakujące pliki.")
+            if archive.getinfo("manifest.json").file_size > 32_768:
+                raise BackupError("Manifest kopii jest zbyt duży.")
+            manifest = json.loads(archive.read("manifest.json"))
+            if not isinstance(manifest, dict) or manifest.get("format") != BACKUP_FORMAT:
+                raise BackupError("To nie jest kopia danych Olusia AI Studio.")
+            declared = manifest.get("databases")
+            if (not isinstance(declared, dict) or not declared or
+                    set(declared) - set(DATABASE_NAMES)):
+                raise BackupError("Kopia zawiera niedozwolone bazy.")
+            expected = {"manifest.json"} | {"databases/" + n for n in declared}
+            if set(names) != expected:
+                raise BackupError("Kopia zawiera nieoczekiwane pliki.")
+            total, result = 0, {}
+            for name, record in declared.items():
+                if (not isinstance(record, dict) or
+                        not isinstance(record.get("size"), int) or
+                        not isinstance(record.get("sha256"), str)):
+                    raise BackupError("Nieprawidłowy manifest kopii.")
+                info = archive.getinfo("databases/" + name)
+                mode = (info.external_attr >> 16) & 0o170000
+                if (info.is_dir() or mode not in (0, 0o100000) or
+                        info.file_size <= 0 or info.file_size > MAX_DATABASE_BYTES or
+                        info.file_size != record["size"]):
+                    raise BackupError("Niedozwolony typ lub rozmiar bazy.")
+                total += info.file_size
+                if total > 2 * MAX_DATABASE_BYTES:
+                    raise BackupError("Zbyt dużo rozpakowanych danych.")
+                raw = archive.read(info)
+                if hashlib.sha256(raw).hexdigest() != record["sha256"]:
+                    raise BackupError("Kopia nie przeszła kontroli integralności.")
+                result[name] = raw
+        with tempfile.TemporaryDirectory(prefix="olusia-verify-") as tmp:
+            for name, contents in result.items():
+                path = Path(tmp) / name
+                path.write_bytes(contents)
+                _check_database(path, name)
+        return result
+    except BackupError:
+        raise
+    except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, RuntimeError) as exc:
+        raise BackupError("Nie udało się odczytać lub sprawdzić kopii zapasowej.") from exc
+
+
+def _backup_directory(data_dir: Path) -> Path:
+    target = data_dir / "backups"
+    _private_folder(data_dir)
+    _private_folder(target)
+    return target
+
+
+def save_data_backup(kind: str = "manual", data_dir: Path | None = None) -> Path | None:
+    """Retain local copies; only auto/daily/restore backups are pruned."""
+    if kind not in {"manual", "daily", "before-update", "before-restore"}:
+        raise BackupError("Nieprawidłowy typ kopii.")
+    root = Path(data_dir) if data_dir is not None else DATA_DIR
+    if not _available_databases(root):
+        return None
+    backups = _backup_directory(root)
+    date = datetime.now(timezone.utc)
+    stamp = date.strftime("%Y-%m-%d") if kind == "daily" else date.strftime("%Y-%m-%d_%H-%M-%S-%f")
+    destination = backups / f"olusia-{kind}-{stamp}.zip"
+    if kind == "daily" and destination.exists():
+        return destination
+    payload = create_data_backup(root)
+    try:
+        with destination.open("xb") as f:
+            destination.chmod(0o600)
+            f.write(payload)
+        # Confirm on disk; avoid reporting a success for a damaged file.
+        validate_data_backup(destination.read_bytes())
+    except (BackupError, OSError) as exc:
+        destination.unlink(missing_ok=True)
+        raise BackupError("Nie udało się bezpiecznie zapisać kopii na dysku.") from exc
+    for prefix, limit in (("daily", 14), ("before-update", 8), ("before-restore", 8)):
+        copies = sorted(backups.glob(f"olusia-{prefix}-*.zip"), reverse=True)
+        for older in copies[limit:]:
+            if older.is_file() and not older.is_symlink():
+                older.unlink(missing_ok=True)
+    return destination
+
+
+def ensure_daily_backup(data_dir: Path | None = None) -> Path | None:
+    """Runs during local app startup, at most once per UTC day."""
+    root = Path(data_dir) if data_dir is not None else DATA_DIR
+    return save_data_backup("daily", root)
+
+
+def list_data_backups(data_dir: Path | None = None) -> list[dict]:
+    root = Path(data_dir) if data_dir is not None else DATA_DIR
+    backup_dir = root / "backups"
+    if backup_dir.is_symlink() or not backup_dir.is_dir():
+        return []
+    found = []
+    for path in sorted(backup_dir.glob("olusia-*.zip"), reverse=True)[:60]:
+        if path.is_file() and not path.is_symlink():
+            found.append({"name": path.name, "path": path, "bytes": path.stat().st_size})
+    return found
+
+
+def restore_data_backup(data: bytes, data_dir: Path | None = None) -> dict:
+    """Restore safely from a validated backup, with a local pre-restore copy."""
+    validated = validate_data_backup(data)
+    root = Path(data_dir) if data_dir is not None else DATA_DIR
+    _private_folder(root)
+    for name in validated:
+        _check_file(root / name)
+    # Abort if the safety backup cannot be persisted.
+    safety = save_data_backup("before-restore", root)
+    with tempfile.TemporaryDirectory(prefix="olusia-restore-") as temp:
+        stage = Path(temp)
+        old = {}
+        for name in validated:
+            if (root / name).exists():
+                old[name] = stage / ("original-" + name)
+                _snapshot_database(root / name, old[name], name)
+            candidate = stage / name
+            candidate.write_bytes(validated[name])
+            candidate.chmod(0o600)
+            _check_database(candidate, name)
+        replaced = []
+        try:
+            for name in validated:
+                target = root / name
+                src = _open_database(stage / name, readonly=True)
+                dest = _open_database(target)
+                try:
+                    src.backup(dest, pages=128, sleep=0.05)
+                finally:
+                    dest.close()
+                    src.close()
+                target.chmod(0o600)
+                _check_database(target, name)
+                replaced.append(name)
+        except (OSError, sqlite3.Error, BackupError) as exc:
+            for name in reversed(replaced):
+                if name in old:
+                    with _open_database(old[name], readonly=True) as src:
+                        with _open_database(root / name) as dest:
+                            src.backup(dest)
+                else:
+                    (root / name).unlink(missing_ok=True)
+            raise BackupError("Przywracanie przerwane. Cofnięto zmiany; sprawdź kopię ratunkową.") from exc
+    return {"restored": sorted(validated), "safety_backup": str(safety) if safety else None}
