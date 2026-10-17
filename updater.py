@@ -490,23 +490,39 @@ def restore_data_backup(data: bytes, data_dir: Path | None = None) -> dict:
         try:
             for name in validated:
                 target = root / name
+                # Track the currently-changing database too, in case SQLite
+                # raises after writing some pages.
+                replaced.append(name)
                 src = _open_database(stage / name, readonly=True)
-                dest = _open_database(target)
                 try:
-                    src.backup(dest, pages=128, sleep=0.05)
+                    dest = _open_database(target)
+                    try:
+                        src.backup(dest, pages=128, sleep=0.05)
+                    finally:
+                        dest.close()
                 finally:
-                    dest.close()
                     src.close()
                 target.chmod(0o600)
                 _check_database(target, name)
-                replaced.append(name)
         except (OSError, sqlite3.Error, BackupError) as exc:
+            rollback_failed = False
             for name in reversed(replaced):
-                if name in old:
-                    with _open_database(old[name], readonly=True) as src:
-                        with _open_database(root / name) as dest:
-                            src.backup(dest)
-                else:
-                    (root / name).unlink(missing_ok=True)
+                try:
+                    if name in old:
+                        src = _open_database(old[name], readonly=True)
+                        try:
+                            dest = _open_database(root / name)
+                            try:
+                                src.backup(dest)
+                            finally:
+                                dest.close()
+                        finally:
+                            src.close()
+                    else:
+                        (root / name).unlink(missing_ok=True)
+                except (sqlite3.Error, OSError):
+                    rollback_failed = True
+            if rollback_failed:
+                raise BackupError("Przywracanie przerwane. Sprawdź kopię ratunkową; automatyczne cofnięcie było niepełne.") from exc
             raise BackupError("Przywracanie przerwane. Cofnięto zmiany; sprawdź kopię ratunkową.") from exc
     return {"restored": sorted(validated), "safety_backup": str(safety) if safety else None}
