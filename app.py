@@ -12,7 +12,8 @@ import tempfile
 import streamlit as st
 
 from flashcards_ui import render_flashcards, render_learning_plus
-from updates_ui import render_updates
+from updates_ui import render_updates, render_backups
+from updater import ensure_daily_backup, BackupError
 from updater import VERSION
 
 from processor import (
@@ -81,6 +82,10 @@ st.markdown("""
 
 
 def render_home() -> None:
+    try:
+        ensure_daily_backup()
+    except (BackupError, OSError) as exc:
+        st.warning(f"Nie udało się utworzyć dzisiejszej kopii danych: {exc}")
     st.markdown("### Cześć, Myszko! ♡")
     st.write("Wybierz, od czego chcesz zacząć. Wszystkie materiały przetwarzamy na Twoim MacBooku.")
     st.markdown("""
@@ -359,7 +364,7 @@ def render_smart_recording(source: Path, job: Path, recording_sha: str, transcri
 
 
 
-tab_home, tabs_audio, tabs_flash, tabs_plus, tabs_updates = st.tabs(["🏡 Start", "🎧 Audio", "📚 Fiszki", "🧠 Learning Plus", "⚙️ Aktualizacje"])
+tab_home, tabs_audio, tabs_flash, tabs_plus, tabs_backup, tabs_updates = st.tabs(["🏡 Start", "🎧 Audio", "📚 Fiszki", "🧠 Learning Plus", "💾 Kopie danych", "⚙️ Aktualizacje"])
 
 with tab_home:
     render_home()
@@ -372,6 +377,9 @@ with tabs_flash:
 
 with tabs_plus:
     render_learning_plus()
+
+with tabs_backup:
+    render_backups()
 
 with tabs_updates:
     render_updates(ROOT)
