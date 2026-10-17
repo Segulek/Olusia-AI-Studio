@@ -7,7 +7,6 @@ import html
 import os
 from pathlib import Path
 import shutil
-import sys
 import tempfile
 
 import streamlit as st
@@ -162,6 +161,7 @@ def render_audio() -> None:
         if ext.lstrip(".") not in SUPPORTED:
             st.error("Nieobsługiwany format pliku.")
             return
+        atexit.register(shutil.rmtree, str(job_dir), ignore_errors=True)
         source = job_dir / f"oryginal{ext}"
         with source.open("wb") as fp:
             fp.write(buffer)
