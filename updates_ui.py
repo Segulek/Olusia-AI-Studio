@@ -22,8 +22,8 @@ def render_updates(root: Path) -> None:
         st.warning(str(exc))
         saved = ""
 
-    repo = st.text_input("Publiczne repozytorium wydawcy (właściciel/nazwa)",
-                         value=saved, help="Wpisz tylko adres repozytorium, któremu ufasz. GitHub nie otrzymuje Twoich fiszek ani nagrań.")
+    st.caption("Oficjalne źródło aktualizacji: `Segulek/Olusia-AI-Studio` — tylko zweryfikowane wydania.")
+    repo = "Segulek/Olusia-AI-Studio"
     if st.button("💾 Zapisz źródło aktualizacji"):
         try:
             set_repo(repo)
@@ -70,14 +70,16 @@ def render_updates(root: Path) -> None:
                         st.error(str(exc))
 
     st.divider()
-    st.markdown("#### Aktualizacja z pliku ZIP (również bez GitHuba)")
+    st.markdown("#### Ręczna aktualizacja (tryb zaawansowany)")
+    st.warning("Instalacja pliku ZIP podmienia kod aplikacji. Używaj wyłącznie paczek wydanych przez Olusia AI Studio.")
     archive = st.file_uploader("Wybierz otrzymany plik Olusia_AI_Studio_UPDATE_vX.Y.Z.zip", type=["zip"], key="app_update_zip")
     if archive is not None:
         try:
             content = archive.getvalue()
             manifest = read_manifest(content)
             st.info(f"Paczka do wersji **{manifest['version']}**. Zanim zainstalujesz, sprawdź, od kogo pochodzi.")
-            if st.button("Zainstaluj aktualizację ZIP", type="primary"):
+            trusted = st.checkbox("Potwierdzam, że pobrałam ZIP z oficjalnego repozytorium", key="olusia_trusted_zip")
+            if st.button("Zainstaluj aktualizację ZIP", type="primary", disabled=not trusted):
                 version = apply_update(content, root)
                 st.success(f"Zainstalowano v{version}. Uruchom aplikację ponownie.")
         except UpdateError as exc:
