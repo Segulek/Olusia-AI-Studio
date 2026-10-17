@@ -2,17 +2,18 @@
 address = "127.0.0.1"
 port = 8501
 headless = false
-maxUploadSize = 400
-maxMessageSize = 400
+maxUploadSize = 250
+maxMessageSize = 250
 enableCORS = true
 enableXsrfProtection = true
+fileWatcherType = "none"
 
 [browser]
 gatherUsageStats = false
 
 [theme]
-primaryColor = "#A855F7"
-backgroundColor = "#16172A"
-secondaryBackgroundColor = "#21243B"
-textColor = "#F5F4FB"
+primaryColor = "#8463AF"
+backgroundColor = "#FAF8FD"
+secondaryBackgroundColor = "#F2EDF8"
+textColor = "#30283D"
 font = "sans serif"
