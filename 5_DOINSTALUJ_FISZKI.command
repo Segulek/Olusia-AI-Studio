@@ -25,6 +25,13 @@ fi
 printf '📚 Instaluję darmowe, lokalne fiszki AI (OCR i model językowy)...\n'
 printf 'Potrzeba internetu i około 2–4 GB miejsca.\n\n'
 
+if [ ! -x .venv-core/bin/python ]; then
+  echo "Najpierw uruchom 1_ZAINSTALUJ.command."
+  exit 1
+fi
+printf "Instaluję FSRS — lokalny algorytm adaptacyjnych powtórek...\n"
+.venv-core/bin/python -m pip install "fsrs>=6.0,<7"
+
 if ! command -v tesseract >/dev/null 2>&1; then
   brew install tesseract
 fi

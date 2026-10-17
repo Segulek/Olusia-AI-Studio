@@ -10,7 +10,7 @@ import tempfile
 
 import streamlit as st
 
-from flashcards_ui import render_flashcards
+from flashcards_ui import render_flashcards, render_learning_plus
 from updates_ui import render_updates
 from updater import VERSION
 
@@ -50,7 +50,7 @@ st.markdown("""
 <div class="hero">
   <div class="chip">● Prywatne studio • AI na Twoim MacBooku</div>
   <h1>🎧 Olusia AI Studio</h1>
-  <p>Audio, transkrypcje i fiszki ze zdjęć lub tekstu. Prywatnie, na Twoim MacBooku.</p>
+  <p>Audio, transkrypcje, fiszki i inteligentne powtórki medyczne. Prywatnie, na Twoim MacBooku.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -229,13 +229,16 @@ def render_audio() -> None:
     st.caption("🔒 Prywatność: pliki są obrabiane na tym komputerze. Internet jest potrzebny do instalacji i jednorazowego pobrania modeli. Nie ma połączenia z OpenAI API.")
 
 
-tabs_audio, tabs_flash, tabs_updates = st.tabs(["🎙️ Audio i transkrypcje", "📚 Fiszki AI", "🔄 Aktualizacje"])
+tabs_audio, tabs_flash, tabs_plus, tabs_updates = st.tabs(["🎙️ Audio i transkrypcje", "📚 Fiszki AI", "🧠 Olusia Learning Plus", "🔄 Aktualizacje"])
 
 with tabs_audio:
     render_audio()
 
 with tabs_flash:
     render_flashcards()
+
+with tabs_plus:
+    render_learning_plus()
 
 with tabs_updates:
     render_updates(ROOT)

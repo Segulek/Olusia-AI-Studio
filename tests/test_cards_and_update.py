@@ -59,8 +59,8 @@ def test_updates_preserve_venvs_and_reject_older():
         (root / 'processor.py').write_text('core')
         (root / '.venv-core').mkdir()
         (root / '.venv-core' / 'secret').write_text('keep')
-        version = apply_update(_pack('2.2.0'), root)
-        assert version == '2.2.0'
+        version = apply_update(_pack('2.3.0'), root)
+        assert version == '2.3.0'
         assert (root / 'app.py').read_bytes() == b'updated'
         assert (root / '.venv-core' / 'secret').read_text() == 'keep'
         with pytest.raises(UpdateError):
@@ -111,3 +111,39 @@ def test_check_and_download_release_mocked():
     with patch('updater.urlopen', return_value=BytesIO(payload)):
         with pytest.raises(UpdateError):
             download_verified_update(latest)
+
+
+
+def test_learning_plus_preserves_old_cards_and_filters_subjects():
+    from cards import (assign_medical_subject, due_learning_cards, learning_summary,
+                       medical_decks)
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / 'fiszki.sqlite3'
+        anatomy = save_deck("Anatomia", [Flashcard("Nerw?", "VII")], db)
+        histology = save_deck("Histologia", [Flashcard("Komórka?", "Neuron")], db)
+        set_known(get_cards(anatomy, db)[0]["id"], True, db)
+        assert len(due_learning_cards(db_path=db)) == 2
+        assign_medical_subject(anatomy, "Anatomia", db)
+        assign_medical_subject(histology, "Histologia", db)
+        assert len(due_learning_cards("Anatomia", db)) == 1
+        assert {row["subject"] for row in medical_decks(db)} == {"Anatomia", "Histologia"}
+        assert learning_summary("Anatomia", db)["due"] == 1
+        # Existing old 'Umiem' data remains intact.
+        assert get_cards(anatomy, db)[0]["known"] == 1
+        delete_deck(anatomy, db)
+        assert learning_summary("Anatomia", db)["total"] == 0
+
+
+def test_real_fsrs_when_installed():
+    pytest.importorskip("fsrs")
+    from datetime import datetime, timezone
+    from cards import due_learning_cards, review_learning_card, learning_summary
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "fiszki.sqlite3"
+        did = save_deck("Biochemia", [Flashcard("ATP?", "Trifosforan adenozyny")], db)
+        card_id = get_cards(did, db)[0]["id"]
+        now = datetime(2026, 10, 18, 12, 0, tzinfo=timezone.utc)
+        due = review_learning_card(card_id, 3, db, now)
+        assert datetime.fromisoformat(due) > now
+        assert due_learning_cards(db_path=db, now=now) == []
+        assert learning_summary(db_path=db, now=now)["reviews_week"] == 1
