@@ -16,13 +16,13 @@ IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "heic", "heif"
 
 def recognize_image(filename: str, content: bytes) -> str:
     """Only operate on bytes explicitly uploaded by the local user."""
-    if not shutil.which("tesseract"):
-        raise OCRError("Nie ma Tesseract. Uruchom 5_DOINSTALUJ_FISZKI.command.")
     extension = Path(filename).suffix.lower().lstrip(".")
     if extension not in IMAGE_EXTS:
         raise OCRError("Nieobsługiwany format zdjęcia.")
     if not content or len(content) > 12 * 1024 * 1024:
         raise OCRError("Zdjęcie powinno mieć od 1 bajta do 12 MB.")
+    if not shutil.which("tesseract"):
+        raise OCRError("Nie ma Tesseract. Uruchom 5_DOINSTALUJ_FISZKI.command.")
     with tempfile.TemporaryDirectory(prefix="olusia-ocr-") as temp:
         Path(temp).chmod(0o700)
         source = Path(temp) / f"zdjecie.{extension}"
