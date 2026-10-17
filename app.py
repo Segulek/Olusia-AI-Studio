@@ -16,7 +16,8 @@ from updater import VERSION
 
 from processor import (
     ProcessingError, extract_mp3, isolate_vocals, make_wav,
-    media_duration, transcript_files,
+    media_duration, transcript_files, filter_segments, clip_audio,
+    save_bookmark, get_bookmarks, delete_bookmark, timestamp_readable,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -59,7 +60,7 @@ def remove_old_job() -> None:
     previous = st.session_state.get("job_dir")
     if previous:
         shutil.rmtree(previous, ignore_errors=True)
-    for key in ("input_file", "mp3", "vocals_wav", "vocals_mp3", "transcript", "edited_transcript", "job_dir", "source_signature", "source_name"):
+    for key in ("input_file", "mp3", "vocals_wav", "vocals_mp3", "transcript", "edited_transcript", "job_dir", "source_signature", "source_name", "seek_seconds", "recording_clip", "recording_query", "recording_note"):
         st.session_state.pop(key, None)
 
 
@@ -195,7 +196,7 @@ def render_audio() -> None:
                     )
                     rows = [(seg.start, seg.end, seg.text) for seg in segments]
                     plain, timed, srt = transcript_files(rows)
-                    st.session_state["transcript"] = {"plain": plain, "timed": timed, "srt": srt}
+                    st.session_state["transcript"] = {"plain": plain, "timed": timed, "srt": srt, "segments": rows}
                     st.session_state.pop("edited_transcript", None)
                 if rows:
                     st.success(f"Gotowe! Rozpoznano {len(rows)} fragmentów wypowiedzi.")
@@ -221,12 +222,80 @@ def render_audio() -> None:
                 st.download_button("⬇️ Tekst z czasami", data=transcript["timed"].encode("utf-8"),
                                    file_name="olusia_znaczniki_czasu.txt", mime="text/plain", use_container_width=True)
             st.caption("TXT zawiera Twoje poprawki. SRT i znaczniki czasu są generowane z pierwotnego wyniku AI.")
-        if st.button("📚 Użyj transkrypcji do fiszek", key="transcript_to_cards"):
+        if transcript:
+            render_smart_recording(source, job, fingerprint, transcript)
+        if transcript and st.button("📚 Użyj transkrypcji do fiszek", key="transcript_to_cards"):
             st.session_state["flashcards_source"] = edited[:16000]
             st.success("Przeniesiono transkrypcję do zakładki „Fiszki AI”. Otwórz ją, aby wygenerować zestaw.")
 
     st.divider()
     st.caption("🔒 Prywatność: pliki są obrabiane na tym komputerze. Internet jest potrzebny do instalacji i jednorazowego pobrania modeli. Nie ma połączenia z OpenAI API.")
+
+
+
+
+def render_smart_recording(source: Path, job: Path, recording_sha: str, transcript: dict) -> None:
+    """Search Whisper segments and play or export short excerpts; no cloud service."""
+    st.divider()
+    st.markdown("### 🔎 Inteligentne nagrania")
+    st.write("Wyszukaj słowo z transkrypcji, kliknij fragment, aby odsłuchać go od wybranego momentu, albo zachowaj zakładkę.")
+    segments = transcript.get("segments", [])
+    if not segments:
+        st.info("Aby przeglądać znaczniki czasu, wykonaj nową transkrypcję w tej wersji aplikacji.")
+        return
+    query = st.text_input("Znajdź temat lub słowo w nagraniu", key="recording_query")
+    matches = filter_segments(segments, query, maximum=40)
+    st.caption(f"Znaleziono i pokazano {len(matches)} fragmentów (maks. 40). Wyszukiwanie działa lokalnie.")
+    for i, (start, end, text) in enumerate(matches):
+        a, b = st.columns([1, 7])
+        if a.button(f"▶ {timestamp_readable(start)[:8]}", key=f"seek_{i}_{int(start*1000)}"):
+            st.session_state['seek_seconds'] = max(0, float(start))
+        b.write(text)
+    selected = st.session_state.get('seek_seconds')
+    bookmarks = get_bookmarks(recording_sha)
+    if bookmarks:
+        with st.expander(f"⭐ Zapisane zakładki ({len(bookmarks)})"):
+            for saved in bookmarks:
+                col_play, col_text, col_del = st.columns([2, 7, 1])
+                if col_play.button("▶ " + timestamp_readable(saved['start'])[:8], key=f"bookmark_play_{saved['id']}"):
+                    st.session_state['seek_seconds'] = saved['start']
+                    selected = saved['start']
+                col_text.write(f"{saved['excerpt']}  _{saved['note']}_")
+                if col_del.button("✕", key=f"bookmark_delete_{saved['id']}"):
+                    delete_bookmark(saved['id'], recording_sha)
+                    st.rerun()
+    if selected is None:
+        st.caption("Wybierz ▶ przy fragmencie, żeby otworzyć odtwarzacz i funkcje zakładek.")
+        return
+    duration = media_duration(source)
+    if duration is not None and selected >= duration:
+        selected = 0.0
+    start = max(0.0, float(selected))
+    st.markdown(f"**Wybrany moment: {timestamp_readable(start)}**")
+    note = st.text_input("Notatka do zakładki (opcjonalnie)", key="recording_note")
+    nearby = next((text for a, b, text in segments if a <= start < b+0.02), "Ważny fragment nagrania")
+    if st.button("⭐ Zapisz zakładkę", key="recording_save_bookmark"):
+        save_bookmark(recording_sha, st.session_state.get('source_name', 'Nagranie'), start, nearby, note)
+        st.success("Zakładka została zapisana na MacBooku. Po ponownym przesłaniu tego samego pliku znów się pojawi.")
+        st.rerun()
+    max_end = min(start + 90, duration) if duration else start + 90
+    end = st.slider("Koniec fragmentu (sekunda nagrania)",
+                    min_value=int(start+1), max_value=max(int(start+1), int(max_end)),
+                    value=min(int(start+30), max(int(start+1), int(max_end))), key=f"clip_end_{int(start)}")
+    if st.button("🎧 Odsłuchaj od tego momentu / przygotuj klip", key="recording_make_clip"):
+        try:
+            with st.spinner("Przygotowuję lokalny fragment audio…"):
+                preview = clip_audio(source, job / f"fragment_{int(start*1000)}_{int(end*1000)}.mp3", start, float(end))
+                st.session_state['recording_clip'] = str(preview)
+        except ProcessingError as exc:
+            st.error(str(exc))
+    clip = st.session_state.get('recording_clip')
+    if clip and Path(clip).is_file():
+        st.audio(clip, format="audio/mpeg")
+        st.download_button("⬇️ Pobierz ten fragment MP3", data=Path(clip).read_bytes(),
+                           file_name=f"fragment_{int(start)}s.mp3", mime="audio/mpeg")
+    st.caption("Zakładki zapisują tylko tekst, notatkę i czas. Samego nagrania aplikacja nie archiwizuje — po restarcie trzeba ponownie wgrać plik.")
+
 
 
 tabs_audio, tabs_flash, tabs_plus, tabs_updates = st.tabs(["🎙️ Audio i transkrypcje", "📚 Fiszki AI", "🧠 Olusia Learning Plus", "🔄 Aktualizacje"])
