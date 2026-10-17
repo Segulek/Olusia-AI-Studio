@@ -1,0 +1,3 @@
+# Run on Python 3.11, both Apple Silicon and Intel.
+streamlit>=1.40,<2
+faster-whisper>=1.1,<2
