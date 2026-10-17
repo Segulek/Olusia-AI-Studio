@@ -25,14 +25,14 @@ def render_flashcards() -> None:
             "Dodaj zdjęcia notatek (opcjonalnie)",
             type=["png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "heic", "heif"],
             accept_multiple_files=True, key="flashcards_images",
-            help="Zdjęcia JPG, PNG, HEIC; maksymalnie 8 zdjęć po 20 MB. Drukowany tekst OCR odczytuje najlepiej.",
+            help="Zdjęcia JPG, PNG, HEIC; maksymalnie 6 zdjęć po 12 MB. Drukowany tekst OCR odczytuje najlepiej.",
         )
         if uploaded:
             st.caption(f"Wybrano {len(uploaded)} zdjęć. Odczyt zdjęć działa lokalnie przez Tesseract (OCR).")
-            if st.button("📷 Odczytaj tekst ze zdjęć", disabled=len(uploaded) > 8):
+            if st.button("📷 Odczytaj tekst ze zdjęć", disabled=len(uploaded) > 6 or any(f.size > 12 * 1024 * 1024 for f in uploaded)):
                 try:
                     with st.spinner("Odczytuję zdjęcia…"):
-                        texts = [recognize_image(file.name, file.getvalue()) for file in uploaded[:8]]
+                        texts = [recognize_image(file.name, file.getvalue()) for file in uploaded[:6]]
                     existing = st.session_state.get("flashcards_source", "").strip()
                     result = "\n\n".join(texts)
                     st.session_state["flashcards_source"] = (existing + "\n\n" + result).strip()
@@ -317,8 +317,8 @@ def render_oral_exam(decks: list[dict]) -> None:
                 with tempfile.TemporaryDirectory(prefix="olusia-oral-") as folder:
                     path = Path(folder) / "odpowiedz.wav"
                     path.write_bytes(recorded.getvalue())
-                    if path.stat().st_size > 25 * 1024 * 1024:
-                        raise ValueError("Odpowiedź jest za duża. Nagraj krótszy fragment.")
+                    if path.stat().st_size > 12 * 1024 * 1024:
+                        raise ValueError("Odpowiedź jest za duża (limit 12 MB). Nagraj krótszy fragment.")
                     segments, _ = _oral_whisper().transcribe(str(path), language="pl", beam_size=5, vad_filter=True)
                     st.session_state[answer_key] = " ".join(piece.text.strip() for piece in segments).strip()
                 st.session_state.pop("oral_feedback_result", None)
