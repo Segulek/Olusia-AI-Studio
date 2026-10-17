@@ -1,32 +1,32 @@
-# 🌷 Olusia AI Studio 2.4.0 — nowy wygląd i bezpieczeństwo
+# 🌷 Olusia AI Studio 2.5.0 — Kopie danych
 
-Nowa wersja ma jasny lawendowo-kremowy interfejs, kartę **🏡 Start** i uproszczoną nawigację. Zachowuje audio, MP3, lokalne transkrypcje, fiszki, Learning Plus, egzamin ustny, FSRS oraz inteligentne nagrania.
+Lokalna aplikacja na macOS: audio, transkrypcje, fiszki AI, adaptacyjna nauka medycyny i Learning Plus. Wersja 2.5 dodaje nową zakładkę **💾 Kopie danych**.
 
-## Co zmienia się w 2.4.0?
+## Co nowego
 
-- **Nowy interfejs:** delikatne kolory, czytelne sekcje, responsywne karty, logiczna nawigacja.
-- **Audio:** maks. 250 MB, 3 godziny na nagranie; kontrola formatu i długości, limit czasu obliczeń, tymczasowe pliki z ograniczonym dostępem.
-- **Zdjęcia:** maks. 6 plików po 12 MB; lokalny OCR z limitami czasu przetwarzania.
-- **Fiszki:** lokalne bazy SQLite z uprawnieniami właściciela, limity długości pytań i odpowiedzi, ochrona eksportu CSV przed wykonywaniem formuł w arkuszach.
-- **Ustny egzamin:** bez wysyłania nagrań na zewnętrzne API; ocena AI tylko pomocnicza, bez automatycznego zaliczania i modyfikowania FSRS.
-- **Zakładki nagrań:** lokalna baza dostępna właścicielowi, weryfikacja identyfikatora nagrania i zakresu odtwarzanego klipu.
-- **Aktualizacje:** wyłącznie z `Segulek/Olusia-AI-Studio`, kontrola SHA-256 i manifestu ZIP, odrzucanie nieznanych plików, duplikatów, dowiązań symbolicznych i podejrzanych rozmiarów.
+- **Kopia dzienna:** przy uruchomieniu aplikacja tworzy najwyżej jedną kopię dziennie, o ile są zapisane fiszki lub zakładki.
+- **Kopia przed aktualizacją:** od wersji 2.5 każde kolejne instalowanie aktualizacji wykonuje kopię przed podmianą kodu. Ważne: przy przejściu z 2.4 do 2.5 stary aktualizator nie tworzy jeszcze automatycznej kopii; zrób ją ręcznie przed pierwszą aktualizacją.
+- **Kopia przed przywróceniem:** aplikacja zapisuje wersję ratunkową przed nadpisaniem istniejących danych.
+- **Zapisz i pobierz:** jeden przycisk do utworzenia kopii oraz pobranie ZIP na zewnętrzny nośnik.
+- **Przywróć:** wybór zapisanej kopii lub ZIP, kontrola sum SHA-256, formatu i integralności SQLite oraz świadome potwierdzenie operacji.
+- **Retencja:** 14 ostatnich kopii dziennych, po 8 kopii przed aktualizacją i przed przywróceniem. Ręcznych kopii nie usuwamy automatycznie.
 
-**Jak zainstalować:** w aplikacji 2.1.1+ otwórz **⚙️ Aktualizacje → Sprawdź → Pobierz → Zainstaluj**, a potem uruchom ją ponownie. Jeśli masz 1.0, skorzystaj najpierw z migratora starszej wersji. Zrób kopię folderu i bazy fiszek przed pierwszą aktualizacją.
+## Co jest zabezpieczane
 
-## Prywatność i ograniczenia
+Kopia zawiera tylko lokalne bazy danych: `fiszki.sqlite3` (zestawy, przedmioty, harmonogram FSRS, historia powtórek) i `nagrania.sqlite3` (znaczniki czasu i notatki). Nie zawiera nagrań, zdjęć, pobranych modeli, aplikacji ani danych z innych folderów.
 
-Aplikacja nasłuchuje na **127.0.0.1**, ma włączone zabezpieczenia CORS i XSRF oraz używa lokalnych modeli. Nie jest jednak przeznaczona do udostępniania publicznie w internecie; osoby z dostępem do konta macOS mogą mieć dostęp do jej lokalnych danych. Przeglądarka utrzymuje pliki przesłane w bieżącej sesji, a zatrzymanie komputera podczas pracy może pozostawić pliki w systemowym katalogu tymczasowym. Warto regularnie czyścić pliki tymczasowe i robić kopie danych.
+Archiwa są zapisywane lokalnie w `~/Library/Application Support/Olusia AI Studio/backups/` z uprawnieniami tylko dla bieżącego użytkownika. Nie są wysyłane na serwer. **ZIP nie ma hasła i nie jest szyfrowany** — jeśli przenosisz go poza MacBook, wykorzystuj zaszyfrowany dysk lub nośnik. Kopie na tym samym komputerze nie chronią przed utratą lub awarią całego dysku.
 
-Sumy SHA-256 sprawdzają integralność pobranych aktualizacji, **nie zastępują podpisu cyfrowego wydawcy ani pełnego audytu bezpieczeństwa**. Nie instaluj ZIP-ów z nieznanych źródeł. Model medyczny może generować błędne odpowiedzi — weryfikuj wiedzę w podręcznikach i materiałach uczelnianych. To narzędzie edukacyjne, a nie diagnostyczne.
+## Przywracanie
 
-Zapisane fiszki: `~/Library/Application Support/Olusia AI Studio/fiszki.sqlite3`. Zakładki nagrań: `~/Library/Application Support/Olusia AI Studio/nagrania.sqlite3`. Przesłanych nagrań aplikacja nie archiwizuje automatycznie.
+W **💾 Kopie danych** wybierz archiwum lokalne lub ZIP. Aplikacja zweryfikuje zawartość przed przywróceniem. Następnie potwierdź operację i kliknij **Przywróć moje dane**. Przywracane są wyłącznie bazy, które znajdują się w archiwum. Po zakończeniu uruchom studio ponownie. Nie przywracaj danych przy równocześnie uruchomionych innych kopiach aplikacji.
 
-## Rozwój i testy
+## Instalacja
 
-Repozytorium: https://github.com/Segulek/Olusia-AI-Studio
+Z wersji 2.1.1+ wybierz **⚙️ Aktualizacje → Sprawdź → Pobierz → Zainstaluj**, potem uruchom ponownie. Z wersji 1.0 najpierw wykonaj jednorazową migrację. **Przed pierwszym przejściem na 2.5 wykonaj ręczną kopię folderu danych** w Finderze (aplikacja nie miała wcześniej wbudowanego narzędzia do kopii).
 
-Wydania: https://github.com/Segulek/Olusia-AI-Studio/releases
+## Bezpieczeństwo i ograniczenia
 
-Przed aktualizacją uruchom: `python -m pytest -q tests/test_cards_and_update.py tests/test_processor.py`.
+Całość działa lokalnie na `127.0.0.1`. ZIP kopii jest sprawdzany przed zapisem baz danych, a wcześniejszy stan zabezpieczamy osobno. Kopie przywracaj wyłącznie ze sprawdzonego źródła. Sumy SHA-256 nie stanowią podpisu cyfrowego. Testy automatyczne nie zastępują próby przywrócenia na MacBooku Olusi. Wiedzę medyczną generowaną przez AI należy weryfikować w podręcznikach.
 
+[Wydania](https://github.com/Segulek/Olusia-AI-Studio/releases) · [Kod](https://github.com/Segulek/Olusia-AI-Studio)
