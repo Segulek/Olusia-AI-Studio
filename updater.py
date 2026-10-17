@@ -20,7 +20,7 @@ import zipfile
 
 SETTINGS_PATH = Path.home() / "Library" / "Application Support" / "Olusia AI Studio" / "updates.json"
 
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 DEFAULT_REPO = "Segulek/Olusia-AI-Studio"
 ALLOWED_FILES = {
     "app.py", "processor.py", "cards.py", "flashcards_ui.py", "ocr_local.py",
@@ -44,32 +44,48 @@ def _parse_version(value: str) -> tuple[int, ...]:
 
 
 def read_manifest(data: bytes) -> dict:
-    if len(data) > 15 * 1024 * 1024:
-        raise UpdateError("Paczka aktualizacji jest zbyt duża (>15 MB).")
+    """Reject oversized, duplicate, nonregular or unlisted ZIP members."""
+    if not isinstance(data, bytes) or len(data) > 15 * 1024 * 1024:
+        raise UpdateError("Paczka aktualizacji jest nieprawidłowa lub za duża.")
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as pack:
+            names = pack.namelist()
+            if len(names) != len(set(names)) or "manifest.json" not in names:
+                raise UpdateError("Powtarzające się lub brakujące pliki w paczce.")
+            manifest_info = pack.getinfo("manifest.json")
+            if manifest_info.file_size > 128 * 1024:
+                raise UpdateError("Manifest aktualizacji jest zbyt duży.")
             metadata = json.loads(pack.read("manifest.json"))
-            if metadata.get("app_id") != "olusia-ai-studio":
+            if not isinstance(metadata, dict) or metadata.get("app_id") != "olusia-ai-studio":
                 raise UpdateError("To nie jest aktualizacja Olusia AI Studio.")
             _parse_version(metadata["version"])
             files = metadata["files"]
             if not isinstance(files, dict) or not files or set(files) - ALLOWED_FILES:
                 raise UpdateError("Paczka zawiera niedozwolone ścieżki.")
-            if len(pack.namelist()) != len(files) + 1:
+            expected_names = {"manifest.json"} | {f"payload/{name}" for name in files}
+            if set(names) != expected_names:
                 raise UpdateError("Paczka zawiera nieoczekiwane pliki.")
+            total = 0
             for name, expected in files.items():
-                if name.startswith("/") or ".." in Path(name).parts or not re.fullmatch("[a-f0-9]{64}", expected):
+                if (name.startswith("/") or ".." in Path(name).parts or
+                        not re.fullmatch(r"[a-f0-9]{64}", expected)):
                     raise UpdateError("Niepoprawny manifest aktualizacji.")
-                target = f"payload/{name}"
-                if target not in pack.namelist():
-                    raise UpdateError(f"Brak pliku {name} w paczce.")
-                member = pack.getinfo(target)
-                if member.file_size > 4 * 1024 * 1024 or member.is_dir() or ((member.external_attr >> 16) & 0o170000) == 0o120000:
-                    raise UpdateError(f"Niebezpieczny typ lub rozmiar pliku: {name}")
-                if hashlib.sha256(pack.read(target)).hexdigest() != expected:
+                entry = pack.getinfo(f"payload/{name}")
+                # macOS/UNIX ZIP metadata: permit regular files, reject symlinks.
+                mode = (entry.external_attr >> 16) & 0o170000
+                if (entry.is_dir() or mode not in (0, 0o100000) or
+                        entry.file_size > 4 * 1024 * 1024):
+                    raise UpdateError(f"Niedozwolony typ lub rozmiar pliku: {name}")
+                total += entry.file_size
+                if total > 18 * 1024 * 1024:
+                    raise UpdateError("Paczka zawiera zbyt dużo rozpakowanych danych.")
+                if hashlib.sha256(pack.read(entry)).hexdigest() != expected:
                     raise UpdateError(f"Uszkodzony plik aktualizacji: {name}")
             return metadata
-    except (zipfile.BadZipFile, KeyError, ValueError, TypeError, UnicodeDecodeError, AttributeError) as exc:
+    except UpdateError:
+        raise
+    except (zipfile.BadZipFile, KeyError, ValueError, TypeError, UnicodeDecodeError,
+            AttributeError, OSError, RuntimeError) as exc:
         raise UpdateError("Nieprawidłowe archiwum aktualizacji.") from exc
 
 
@@ -91,6 +107,11 @@ def apply_update(data: bytes, folder: Path, current_version: str = VERSION) -> s
             with zipfile.ZipFile(io.BytesIO(data)) as pack:
                 for index, name in enumerate(metadata["files"]):
                     target = folder / name
+                    # Do not traverse symlinks inside an installation.
+                    if target.is_symlink() or any(p.is_symlink() for p in [target.parent, folder]):
+                        raise UpdateError("Folder aktualizacji zawiera dowiązanie symboliczne.")
+                    if target.parent.resolve() != folder and folder not in target.parent.resolve().parents:
+                        raise UpdateError("Niebezpieczna ścieżka aktualizacji.")
                     target.parent.mkdir(parents=True, exist_ok=True)
                     old = backup / str(index) if target.exists() else None
                     if old is not None:
@@ -116,10 +137,10 @@ def apply_update(data: bytes, folder: Path, current_version: str = VERSION) -> s
 
 
 def validate_repo(repo: str) -> str:
-    repo = repo.strip()
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
-        raise UpdateError("Podaj repozytorium w formacie właściciel/nazwa, np. przyklad/Olusia-AI-Studio.")
-    return repo
+    """Updates are executable code: accept only the trusted publisher."""
+    if repo.strip().casefold() != DEFAULT_REPO.casefold():
+        raise UpdateError("Ze względów bezpieczeństwa aktualizacje pochodzą tylko z oficjalnego repozytorium Olusia AI Studio.")
+    return DEFAULT_REPO
 
 
 def configured_repo(settings: Path = SETTINGS_PATH) -> str:
@@ -190,6 +211,8 @@ def download_verified_update(release: dict) -> bytes:
                 blocks.append(chunk)
         contents = b"".join(blocks)
         digest = str(release.get("sha256", ""))
+        if not digest:
+            raise UpdateError("Wydanie GitHub nie ma sumy kontrolnej SHA-256. Nie instaluję niezweryfikowanego pliku.")
         if digest:
             if not re.fullmatch("sha256:[a-f0-9]{64}", digest):
                 raise UpdateError("GitHub zwrócił nierozpoznawalny format sumy kontrolnej.")
