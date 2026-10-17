@@ -1,7 +1,7 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-echo "🔍 DIAGNOSTYKA OLUSIA AI STUDIO"
+echo "🔍 DIAGNOSTYKA OLUSIA AI STUDIO 2.4"
 echo "macOS: $(sw_vers -productVersion 2>/dev/null || echo '?')"
 echo "Procesor: $(uname -m)"
 command -v brew >/dev/null && echo "✓ Homebrew: $(command -v brew)" || echo "✗ Brak Homebrew"

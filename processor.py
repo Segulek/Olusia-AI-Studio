@@ -17,7 +17,7 @@ class ProcessingError(RuntimeError):
     """Readable description of a failed local media-processing step."""
 
 
-def _run(cmd: list[str], *, timeout: int = 14400) -> subprocess.CompletedProcess[str]:
+def _run(cmd: list[str], *, timeout: int = 900) -> subprocess.CompletedProcess[str]:
     try:
         p = subprocess.run(
             cmd,
@@ -85,7 +85,7 @@ def isolate_vocals(source: Path, job_folder: Path, stem_python: Path) -> Path:
         str(stem_python), "-m", "demucs", "--device", "cpu",
         "--two-stems", "vocals", "-n", "htdemucs",
         "--out", str(stems_folder), str(prepared)
-    ])
+    ], timeout=7200)
     vocals_wav = stems_folder / "htdemucs" / prepared.stem / "vocals.wav"
     if not vocals_wav.is_file():
         raise ProcessingError("Model zakończył pracę, lecz nie utworzył ścieżki z głosem.")
@@ -137,6 +137,9 @@ def clip_audio(source: Path, destination: Path, start: float, end: float) -> Pat
     start, end = float(start), float(end)
     if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start or end - start > 300:
         raise ProcessingError("Wybierz poprawny fragment (maksymalnie 5 minut).")
+    duration = media_duration(source)
+    if duration is None or start >= duration or end > duration + 0.25:
+        raise ProcessingError("Fragment wykracza poza długość nagrania.")
     destination.parent.mkdir(parents=True, exist_ok=True)
     _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
           "-ss", str(start), "-i", str(source), "-t", str(end-start),
@@ -148,8 +151,13 @@ def clip_audio(source: Path, destination: Path, start: float, end: float) -> Pat
 
 
 def _bookmarks(db_path: Path):
+    if db_path.is_symlink():
+        raise ProcessingError("Niebezpieczna ścieżka bazy zakładek.")
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(db_path)
+    if db_path == BOOKMARK_DB:
+        db_path.parent.chmod(0o700)
+    connection = sqlite3.connect(db_path, timeout=5)
+    db_path.chmod(0o600)
     connection.execute("""CREATE TABLE IF NOT EXISTS recording_bookmarks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         recording_sha TEXT NOT NULL,
@@ -176,6 +184,9 @@ def save_bookmark(recording_sha: str, title: str, start: float, excerpt: str,
 
 
 def get_bookmarks(recording_sha: str, db_path: Path = BOOKMARK_DB) -> list[dict]:
+    import re
+    if not re.fullmatch(r"[a-f0-9]{64}", recording_sha):
+        raise ProcessingError("Niepoprawny identyfikator nagrania.")
     with _bookmarks(db_path) as db:
         db.row_factory = sqlite3.Row
         return [dict(row) for row in db.execute("""SELECT id,title,start,excerpt,note

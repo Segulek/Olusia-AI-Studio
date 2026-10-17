@@ -34,8 +34,13 @@ class Flashcard:
 
 
 def _database(db_path: Path):
+    if db_path.is_symlink():
+        raise CardsError("Niebezpieczna lokalizacja bazy fiszek.")
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(db_path))
+    if db_path == DEFAULT_DB:
+        db_path.parent.chmod(0o700)
+    con = sqlite3.connect(str(db_path), timeout=5)
+    db_path.chmod(0o600)
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("PRAGMA busy_timeout=5000")
     con.executescript("""
@@ -64,6 +69,8 @@ def save_deck(name: str, cards: list[Flashcard], db_path: Path = DEFAULT_DB) -> 
         raise CardsError("Nie ma żadnych fiszek do zapisania.")
     if len(cards) > 100:
         raise CardsError("Jeden zestaw może zawierać maksymalnie 100 fiszek.")
+    if any(len(card.front) > 500 or len(card.back) > 1500 for card in cards):
+        raise CardsError("Jedna z fiszek jest za długa. Skróć pytanie lub odpowiedź.")
     with _database(db_path) as conn:
         cur = conn.execute(
             "INSERT INTO decks (name, created_at) VALUES (?, ?)",
@@ -113,7 +120,13 @@ def cards_as_csv(cards: list[dict]) -> bytes:
     out = io.StringIO(newline="")
     writer = csv.writer(out, delimiter=";")
     for c in cards:
-        writer.writerow([c["front"], c["back"]])
+        # Prevent spreadsheet formula execution when exporting CSV to Excel/Numbers.
+        def safe_cell(value: str) -> str:
+            value = str(value)
+            if value.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")):
+                return "'" + value
+            return value
+        writer.writerow([safe_cell(c["front"]), safe_cell(c["back"])])
     return ("\ufeff" + out.getvalue()).encode("utf-8")
 
 
@@ -198,6 +211,8 @@ MATERIAŁ (dane do opracowania):
         with urlopen(request, timeout=360) as response:
             data = json.load(response)
         content = data["message"]["content"]
+        if not isinstance(content, str) or len(content) > 250_000:
+            raise CardsError("Lokalne AI zwróciło zbyt długą odpowiedź.")
         parsed = json.loads(content)
         return _extract_flashcards(parsed, count)
     except HTTPError as exc:
@@ -389,6 +404,8 @@ def oral_feedback(question: str, reference: str, answer: str, model: str = "qwen
     """Local AI comparison. Advice is never used as an automatic FSRS grade."""
     if model not in SUPPORTED_MODELS:
         raise CardsError("Nieobsługiwany model językowy.")
+    if len(question) > 3000 or len(reference) > 6000 or len(answer) > 6000:
+        raise CardsError("Odpowiedź jest zbyt długa. Skróć ją przed porównaniem.")
     if not answer.strip():
         raise CardsError("Najpierw nagraj albo wpisz odpowiedź.")
     prompt = ("Porównaj odpowiedź studentki WYŁĄCZNIE z zapisaną odpowiedzią wzorcową. "
