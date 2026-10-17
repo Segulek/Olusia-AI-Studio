@@ -238,3 +238,109 @@ def test_missing_release_digest_is_rejected():
     with patch('updater.urlopen',return_value=BytesIO(_pack('2.6.0'))):
         with pytest.raises(UpdateError):
             download_verified_update(v)
+
+
+
+def test_backups_snapshot_roundtrip_and_restore_fsrs_history():
+    from updater import (create_data_backup, validate_data_backup,
+                         restore_data_backup, list_data_backups)
+    from processor import save_bookmark, get_bookmarks
+    import sqlite3
+    with tempfile.TemporaryDirectory() as tmp:
+        root=Path(tmp)/'local-data'
+        root.mkdir()
+        db=root/'fiszki.sqlite3'
+        did=save_deck('Anatomia',[Flashcard('Który nerw?', 'Nerw VII')],db)
+        cid=get_cards(did,db)[0]['id']
+        with sqlite3.connect(db) as con:
+            con.execute('CREATE TABLE IF NOT EXISTS learning_reviews (id INTEGER PRIMARY KEY, card_id INTEGER, rating INTEGER, reviewed_at TEXT, next_due_at TEXT)')
+            con.execute('INSERT INTO learning_reviews VALUES (1,?,?,?,?)',(cid,2,'2026-10-18T10:00:00Z','2026-10-19T10:00:00Z'))
+        save_bookmark('a'*64,'Wykład',30,'Nerwy czaszkowe','ważne',root/'nagrania.sqlite3')
+        backup=create_data_backup(root)
+        assert set(validate_data_backup(backup))=={'fiszki.sqlite3','nagrania.sqlite3'}
+        delete_deck(did,db)
+        with sqlite3.connect(root/'nagrania.sqlite3') as con:
+            con.execute('DELETE FROM recording_bookmarks')
+        restored=restore_data_backup(backup,root)
+        assert restored['safety_backup'] is not None
+        assert len(get_cards(did,db))==1
+        with sqlite3.connect(db) as con:
+            assert con.execute('SELECT rating FROM learning_reviews').fetchone()==(2,)
+        assert len(get_bookmarks('a'*64,root/'nagrania.sqlite3'))==1
+        assert any('before-restore' in item['name'] for item in list_data_backups(root))
+
+
+def test_daily_backup_is_idempotent_and_preupdate_backup_kept():
+    from updater import ensure_daily_backup, save_data_backup, list_data_backups
+    with tempfile.TemporaryDirectory() as tmp:
+        root=Path(tmp)/'local-data'
+        save_deck('Anatomia',[Flashcard('B?','C')],root/'fiszki.sqlite3')
+        first=ensure_daily_backup(root)
+        assert first is not None and first.is_file()
+        assert first==ensure_daily_backup(root)
+        manual=save_data_backup('manual',root)
+        before=save_data_backup('before-update',root)
+        assert manual is not None and before is not None
+        assert len(list_data_backups(root))==3
+
+
+def test_data_backup_rejects_tampering_zip_traversal_and_wrong_structure():
+    from updater import create_data_backup, validate_data_backup, BackupError
+    with tempfile.TemporaryDirectory() as tmp:
+        root=Path(tmp)
+        save_deck('Anatomia',[Flashcard('a?','b')],root/'fiszki.sqlite3')
+        good=create_data_backup(root)
+        assert 'fiszki.sqlite3' in validate_data_backup(good)
+        damaged=BytesIO()
+        with zipfile.ZipFile(BytesIO(good)) as original, zipfile.ZipFile(damaged,'w') as target:
+            for name in original.namelist():
+                contents=original.read(name)
+                if name=='databases/fiszki.sqlite3':
+                    contents += b'not-correct'
+                target.writestr(name,contents)
+        with pytest.raises(BackupError):
+            validate_data_backup(damaged.getvalue())
+        altered=BytesIO()
+        with zipfile.ZipFile(BytesIO(good)) as original, zipfile.ZipFile(altered,'w') as target:
+            for name in original.namelist():
+                target.writestr(name,original.read(name))
+            target.writestr('../escaped.sqlite3',b'evil')
+        with pytest.raises(BackupError):
+            validate_data_backup(altered.getvalue())
+        # Old data may not be overwritten with malformed backups.
+        assert list_decks(root/'fiszki.sqlite3')[0]['total']==1
+
+
+def test_restore_refuses_sqlite_triggers_without_touching_current_db():
+    from updater import create_data_backup, restore_data_backup, BackupError
+    import sqlite3
+    with tempfile.TemporaryDirectory() as tmp:
+        root=Path(tmp)
+        db=root/'fiszki.sqlite3'
+        saved=save_deck('Nauka',[Flashcard('x','y')],db)
+        with sqlite3.connect(db) as con:
+            con.execute('CREATE TRIGGER bad_trigger AFTER INSERT ON cards BEGIN DELETE FROM decks; END')
+        with pytest.raises(BackupError):
+            create_data_backup(root)
+        with sqlite3.connect(db) as con:
+            con.execute('DROP TRIGGER bad_trigger')
+        good=create_data_backup(root)
+        assert restore_data_backup(good,root)['restored']==['fiszki.sqlite3']
+        assert get_cards(saved,db)[0]['front']=='x'
+
+
+def test_backup_must_be_created_before_app_code_update(monkeypatch):
+    import updater
+    with tempfile.TemporaryDirectory() as tmp:
+        root=Path(tmp)
+        data=root/'private'
+        save_deck('Nerwy',[Flashcard('X?','XI')],data/'fiszki.sqlite3')
+        installed=root/'program'
+        installed.mkdir()
+        (installed/'app.py').write_text('old')
+        (installed/'processor.py').write_text('old')
+        monkeypatch.setattr(updater,'DATA_DIR',data)
+        upgraded=apply_update(_pack('2.6.0'),installed,current_version='2.5.0')
+        assert upgraded=='2.6.0'
+        assert any(p.name.startswith('olusia-before-update-') for p in (data/'backups').iterdir())
+        assert get_cards(1,data/'fiszki.sqlite3')[0]['front']=='X?'

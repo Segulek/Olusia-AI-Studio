@@ -7,6 +7,8 @@ import streamlit as st
 from updater import (
     VERSION, UpdateError, apply_update, check_github_update,
     configured_repo, download_verified_update, read_manifest, set_repo,
+    BackupError, save_data_backup, list_data_backups, validate_data_backup,
+    restore_data_backup,
 )
 
 
@@ -85,3 +87,100 @@ def render_updates(root: Path) -> None:
         except UpdateError as exc:
             st.error(str(exc))
     st.caption("Pobranie kodu z Internetu i uruchomienie aktualizacji wymaga zaufania do wydawcy. Zachowuj kopie ważnych materiałów.")
+
+
+
+def render_backups() -> None:
+    """Local-only export, restore and overview of private data backups."""
+    st.markdown("### 💾 Moje kopie zapasowe")
+    st.write("Zabezpiecz swoje fiszki, wyniki Learning Plus, historię powtórek i zakładki w nagraniach.")
+    st.info("🌷 Raz dziennie przy uruchomieniu studia zapisujemy lokalną kopię. "
+            "Tworzymy ją także przed aktualizacją i przywracaniem danych. "
+            "Nie wysyłamy niczego na GitHub ani do chmury.")
+
+    if st.button("💜 Zrób kopię zapasową teraz", type="primary", key="backup_save_now"):
+        try:
+            with st.spinner("Bezpiecznie zapisuję fiszki i zakładki…"):
+                path = save_data_backup("manual")
+            if path is None:
+                st.info("Nie ma jeszcze zapisanych fiszek ani zakładek. Dodaj pierwszy zestaw.")
+            else:
+                st.session_state["olusia_last_backup_name"] = path.name
+                st.success("Zapisano kopię danych na MacBooku. Możesz pobrać ją niżej.")
+        except (BackupError, OSError) as exc:
+            st.error(f"Nie udało się zrobić kopii: {exc}")
+
+    backups = list_data_backups()
+    st.markdown("#### Twoje zapisane kopie")
+    if backups:
+        names = {item["name"]: item for item in backups}
+        preferred = st.session_state.get("olusia_last_backup_name", "")
+        idx = list(names).index(preferred) if preferred in names else 0
+        choice = st.selectbox("Wybierz kopię", options=list(names), index=idx, key="olusia_backup_choice")
+        selected = names[choice]
+        st.caption(f"Rozmiar kopii: {selected['bytes'] / 1024 / 1024:.2f} MB · plik tylko na tym komputerze.")
+        if selected["bytes"] <= 96 * 1024 * 1024:
+            try:
+                st.download_button(
+                    "⬇️ Pobierz wybraną kopię na dysk zewnętrzny",
+                    data=selected["path"].read_bytes(),
+                    file_name=choice, mime="application/zip", key="backup_download")
+            except OSError:
+                st.warning("Nie można odczytać kopii. Spróbuj wybrać inną.")
+    else:
+        st.caption("Nie ma jeszcze kopii. Użyj przycisku powyżej po zapisaniu pierwszych fiszek.")
+
+    st.divider()
+    st.markdown("#### Przywróć fiszki i postępy")
+    st.warning("Przywrócenie ZASTĘPUJE obecne fiszki i zakładki wersją z wybranej kopii. "
+               "Najpierw zapisywana jest oddzielna kopia ratunkowa. "
+               "Pozostałe bazy, których nie ma w archiwum, zostaną bez zmian.")
+    source = st.radio("Skąd przywrócić?", ["Z kopii na MacBooku", "Z pliku ZIP"],
+                      horizontal=True, key="backup_restore_source")
+    data = None
+    if source == "Z kopii na MacBooku":
+        if backups:
+            selected_name = st.selectbox("Wybierz kopię do przywrócenia",
+                                         options=[item["name"] for item in backups],
+                                         key="backup_restore_choice")
+            try:
+                data = next(item for item in backups if item["name"] == selected_name)["path"].read_bytes()
+            except OSError:
+                st.error("Nie mogę odczytać tej kopii.")
+    else:
+        archive = st.file_uploader("Wybierz własną kopię Olusia (ZIP)",
+                                   type=["zip"], key="backup_restore_upload")
+        if archive is not None:
+            if archive.size > 96 * 1024 * 1024:
+                st.error("Kopia jest zbyt duża (ponad 96 MB).")
+            else:
+                data = archive.getvalue()
+    if data is not None:
+        try:
+            content = validate_data_backup(data)
+            labels = {
+                "fiszki.sqlite3": "fiszki i historia powtórek",
+                "nagrania.sqlite3": "zakładki w nagraniach",
+            }
+            st.success("Kopia jest poprawna i zawiera: " +
+                       ", ".join(labels[name] for name in content))
+            approved = st.checkbox("Rozumiem, że aktualne dane zostaną zastąpione danymi z kopii.",
+                                   key="backup_restore_confirm")
+            typed = st.text_input("Aby potwierdzić, wpisz PRZYWRÓĆ",
+                                  key="backup_restore_phrase")
+            if st.button("♻️ Przywróć moje dane", type="primary",
+                         disabled=not (approved and typed == "PRZYWRÓĆ"),
+                         key="backup_restore_execute"):
+                with st.spinner("Tworzę kopię ratunkową i przywracam dane…"):
+                    restored = restore_data_backup(data)
+                st.success("Przywrócono: " + ", ".join(labels[name] for name in restored["restored"]) +
+                           ". Uruchom studio ponownie, żeby odświeżyć wszystkie widoki.")
+                if restored["safety_backup"]:
+                    st.caption("Kopia ratunkowa sprzed przywrócenia: " +
+                               Path(restored["safety_backup"]).name)
+        except BackupError as exc:
+            st.error(f"Nie mogę przywrócić tej kopii: {exc}")
+
+    st.caption("🔐 Kopie nie są zaszyfrowane. Jeśli przenosisz ZIP na pendrive lub dysk, "
+               "użyj nośnika chronionego hasłem (np. FileVault). "
+               "Kopie w tym samym MacBooku nie chronią przed awarią ani utratą całego komputera.")
