@@ -39,3 +39,38 @@ class ProcessorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class SmartRecordingsTests(unittest.TestCase):
+    def test_search_casefold_and_limit(self):
+        from processor import filter_segments
+        rows = [(0, 2, 'Nerw błędny'), (2, 4, 'Mięsień'), (4, 5, 'NERW TWARZOWY')]
+        self.assertEqual(len(filter_segments(rows, 'nerw')), 2)
+        self.assertEqual(filter_segments(rows, 'BLĘDNY'), [])
+        self.assertEqual(len(filter_segments(rows, '', 2)), 2)
+
+    def test_clip_validation_and_real_clip(self):
+        from processor import clip_audio, ProcessingError
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            source=root/'source.wav'
+            subprocess.run(['ffmpeg','-v','error','-f','lavfi','-i','sine=frequency=500:duration=3','-y',str(source)],check=True)
+            with self.assertRaises(ProcessingError):
+                clip_audio(source,root/'bad.mp3',10,1)
+            clip=clip_audio(source,root/'out.mp3',1,2)
+            self.assertTrue(clip.is_file())
+            self.assertAlmostEqual(media_duration(clip),1,delta=.15)
+
+    def test_local_bookmarks_roundtrip_and_recording_isolation(self):
+        from processor import save_bookmark, get_bookmarks, delete_bookmark, ProcessingError
+        with tempfile.TemporaryDirectory() as temp:
+            db=Path(temp)/'bookmarks.db'
+            recording='a'*64
+            bookmark=save_bookmark(recording,'Anatomia',123.5,'Mięśnie szyi','kolokwium',db)
+            self.assertEqual(get_bookmarks(recording,db)[0]['start'],123.5)
+            self.assertEqual(get_bookmarks('b'*64,db),[])
+            with self.assertRaises(ProcessingError):
+                save_bookmark('not-sha','oops',0,'x',db_path=db)
+            delete_bookmark(bookmark,recording,db)
+            self.assertEqual(get_bookmarks(recording,db),[])
