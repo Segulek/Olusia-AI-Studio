@@ -62,6 +62,8 @@ jobs:
                   mode=(info.external_attr>>16)&0o170000
                   if info.is_dir() or mode == stat.S_IFLNK:
                       raise SystemExit("Niedozwolony typ pliku w archiwum.")
+                  if str(rel) in {".github/workflows/publish-release.yml", "README.md", "GITHUB_AKTUALIZACJE.md"}:
+                      continue
                   dest=Path(*rel.parts)
                   dest.parent.mkdir(parents=True,exist_ok=True)
                   dest.write_bytes(z.read(info))
