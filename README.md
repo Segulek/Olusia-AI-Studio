@@ -1,4 +1,27 @@
-# 🌷 Olusia AI Studio 2.5.1 — Kopie danych
+# 🌷 Olusia AI Studio 2.6.0 — Visual Notes for Medical English
+
+## 🧠 Understand Notes — nowy generator fiszek ze zdjęć
+
+Olusia studiuje **medycynę po angielsku**. Od wersji 2.6.0 **WSZYSTKIE NOWO GENEROWANE FISZKI** — pytania i odpowiedzi — muszą być po angielsku, zarówno ze zdjęć, jak i z tekstu. Dotychczasowe zapisane zestawy nie są zmieniane.
+
+W zakładce **📚 Fiszki → ✨ Twórz fiszki** dostępne są trzy tryby:
+
+- **🧠 Zrozum zdjęcie (Vision AI)** — zalecany do ręcznych notatek, strzałek, schematów, kolumn i zdjęć z diagramami. Model dostaje **obraz**, a nie błędny tekst OCR; wyjaśnia relacje i tworzy pytania medyczne w języku angielskim.
+- **✍️ Tekst i notatki** — generuje angielskie pytania i odpowiedzi na podstawie wklejonego źródła.
+- **📷 Klasyczny OCR** — stary tryb odczytu liter, przydatny do czytelnego druku; tekst należy poprawić przed generowaniem fiszek.
+
+Tryb Vision wymaga lokalnego modelu obrazu Ollama. W celu oszczędzania miejsca **nie pobiera się automatycznie** żadnego nowego dużego modelu. Po zainstalowaniu Ollamy **0.12.7 lub nowszej** wybierz:
+
+- **Oszczędny:** w Terminalu uruchom \`ollama pull qwen3-vl:2b\` (około **1,9 GB**).
+- **Mocniejszy:** opcjonalnie \`ollama pull qwen3-vl:4b\` (około **3,3 GB**).
+
+Instalator \`5_DOINSTALUJ_FISZKI.command\` pyta o zgodę na pobranie modelu Vision; bez zgody pozostaje niepobrany. Maksymalnie **2 zdjęcia** na jedną analizę obrazu, do **12 MB** każde. Zdjęcia są lokalnie weryfikowane, orientowane i skalowane, a następnie przesyłane wyłącznie na lokalny serwer Ollama \`127.0.0.1:11434\`, nie do zewnętrznego API.
+
+**Zasady bezpieczeństwa:** AI musi opierać fiszki na widocznych elementach obrazu i wskazywać uzasadnienie. Nieczytelne dopiski powinno pomijać i zgłaszać niepewność, jednak małe lokalne modele mogą błędnie odczytać ręczne pismo lub pomylić relacje. Olusia musi sprawdzić każdą fiszkę z materiałami z uczelni przed zapisaniem; to nie jest narzędzie diagnostyczne. Walidacja wykrywa typowe polskie słowa i litery, ale nie gwarantuje absolutnej poprawności języka ani medycyny.
+
+**Ważne dla wersji 1.0:** najpierw wykonaj migrację starej aplikacji do nowszej wersji. Sam plik ZIP aktualizacji nie jest przeznaczony do instalowania bezpośrednio w 1.0.
+
+---
 
 Lokalna aplikacja na macOS: audio, transkrypcje, fiszki AI, adaptacyjna nauka medycyny i Learning Plus. Wersja 2.5 dodaje nową zakładkę **💾 Kopie danych**.
 
