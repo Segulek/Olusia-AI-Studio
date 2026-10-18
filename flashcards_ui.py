@@ -242,8 +242,8 @@ def render_learning_plus() -> None:
         st.warning("Brak zestawów. Najpierw przygotuj i zapisz fiszki w zakładce **Fiszki AI**.")
         return
 
-    subjects_tab, reviews_tab, stats_tab = st.tabs(
-        ["📚 Przedmioty", "🎯 Powtórki na dziś", "📊 Postępy"]
+    subjects_tab, reviews_tab, oral_tab, stats_tab = st.tabs(
+        ["📚 Przedmioty", "🎯 Powtórki na dziś", "🎙️ Egzamin ustny", "📊 Postępy"]
     )
 
     with subjects_tab:
