@@ -344,3 +344,68 @@ def test_backup_must_be_created_before_app_code_update(monkeypatch):
         assert upgraded=='2.6.0'
         assert any(p.name.startswith('olusia-before-update-') for p in (data/'backups').iterdir())
         assert get_cards(1,data/'fiszki.sqlite3')[0]['front']=='X?'
+
+
+
+def test_automatic_backups_expire_after_seven_calendar_days_but_manual_remain():
+    from datetime import datetime, timezone, timedelta
+    from updater import _prune_automatic_backups
+    now = datetime(2026, 10, 18, 12, 0, tzinfo=timezone.utc)
+    with tempfile.TemporaryDirectory() as temp:
+        directory = Path(temp)
+        for age in range(12):
+            day = (now.date() - timedelta(days=age)).isoformat()
+            for kind in ('daily', 'before-update', 'before-restore'):
+                suffix = '' if kind == 'daily' else '_12-00-00-123456'
+                (directory / f'olusia-{kind}-{day}{suffix}.zip').write_bytes(b'archive')
+        manual = directory / 'olusia-manual-2026-08-01_12-00-00-123456.zip'
+        manual.write_bytes(b'my manual copy')
+        unrelated = directory / 'olusia-daily-not-a-date.zip'
+        unrelated.write_bytes(b'unrelated')
+        _prune_automatic_backups(directory, now)
+        assert manual.read_bytes() == b'my manual copy'
+        assert unrelated.read_bytes() == b'unrelated'
+        for kind in ('daily', 'before-update', 'before-restore'):
+            assert len(list(directory.glob(f'olusia-{kind}-2026-10-*.zip'))) == 7
+            old = (now.date() - timedelta(days=7)).isoformat()
+            assert not list(directory.glob(f'olusia-{kind}-{old}*.zip'))
+
+
+def test_automatic_backup_keeps_no_more_than_seven_each_kind():
+    from datetime import datetime, timezone
+    from updater import _prune_automatic_backups
+    now = datetime(2026, 10, 18, 12, tzinfo=timezone.utc)
+    with tempfile.TemporaryDirectory() as temp:
+        directory = Path(temp)
+        for i in range(10):
+            for kind in ('before-update', 'before-restore'):
+                (directory / f'olusia-{kind}-2026-10-18_12-00-{i:02}-123456.zip').write_bytes(b'test')
+        _prune_automatic_backups(directory, now)
+        assert len(list(directory.glob('olusia-before-update-*.zip'))) == 7
+        assert len(list(directory.glob('olusia-before-restore-*.zip'))) == 7
+        for kind in ('before-update', 'before-restore'):
+            assert (directory / f'olusia-{kind}-2026-10-18_12-00-09-123456.zip').is_file()
+
+
+def test_backup_zip_deflate_max_compression_and_compact_without_touching_live_db():
+    from updater import create_data_backup, validate_data_backup
+    import sqlite3
+    with tempfile.TemporaryDirectory() as temp:
+        directory = Path(temp)
+        db = directory / 'fiszki.sqlite3'
+        did = save_deck(
+            'Anatomia',
+            [Flashcard(f'Nerw {i}?', 'Powtarzalna odpowiedź ' * 42) for i in range(100)],
+            db,
+        )
+        delete_deck(did, db)
+        save_deck('Fizjologia', [Flashcard('ATP?', 'Energia')], db)
+        live_size = db.stat().st_size
+        compressed = create_data_backup(directory)
+        assert db.stat().st_size == live_size
+        with zipfile.ZipFile(BytesIO(compressed)) as archive:
+            item = archive.getinfo('databases/fiszki.sqlite3')
+            assert item.compress_type == zipfile.ZIP_DEFLATED
+            assert item.compress_size < item.file_size
+            assert item.file_size < live_size
+        assert validate_data_backup(compressed)['fiszki.sqlite3'][:16].startswith(b'SQLite format 3')

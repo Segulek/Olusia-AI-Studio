@@ -1,4 +1,4 @@
-# 🌷 Olusia AI Studio 2.5.0 — Kopie danych
+# 🌷 Olusia AI Studio 2.5.1 — Kopie danych
 
 Lokalna aplikacja na macOS: audio, transkrypcje, fiszki AI, adaptacyjna nauka medycyny i Learning Plus. Wersja 2.5 dodaje nową zakładkę **💾 Kopie danych**.
 
@@ -9,7 +9,8 @@ Lokalna aplikacja na macOS: audio, transkrypcje, fiszki AI, adaptacyjna nauka me
 - **Kopia przed przywróceniem:** aplikacja zapisuje wersję ratunkową przed nadpisaniem istniejących danych.
 - **Zapisz i pobierz:** jeden przycisk do utworzenia kopii oraz pobranie ZIP na zewnętrzny nośnik.
 - **Przywróć:** wybór zapisanej kopii lub ZIP, kontrola sum SHA-256, formatu i integralności SQLite oraz świadome potwierdzenie operacji.
-- **Retencja:** 14 ostatnich kopii dziennych, po 8 kopii przed aktualizacją i przed przywróceniem. Ręcznych kopii nie usuwamy automatycznie.
+- **Oszczędność miejsca od 2.5.1:** automatyczne kopie dzienne, sprzed aktualizacji i sprzed przywrócenia przechowywane są **tylko z ostatnich 7 dni kalendarzowych UTC** (maksymalnie po 7 plików każdego rodzaju). Starsze automatyczne archiwa są usuwane po pomyślnym wykonaniu kolejnej kopii. Ręcznych kopii nie usuwamy automatycznie.
+- **Kompresja:** kopie SQLite są wykonywane bezpiecznym mechanizmem SQLite backup, porządkowane przez `VACUUM` wyłącznie w kopii tymczasowej i kompresowane jako ZIP (DEFLATE, poziom 9). Baza Olusi pozostaje bez zmian. W zależności od danych oszczędność miejsca może być różna.
 
 ## Co jest zabezpieczane
 

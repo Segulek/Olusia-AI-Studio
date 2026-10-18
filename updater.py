@@ -20,7 +20,7 @@ import zipfile
 
 SETTINGS_PATH = Path.home() / "Library" / "Application Support" / "Olusia AI Studio" / "updates.json"
 
-VERSION = "2.5.0"
+VERSION = "2.5.1"
 DEFAULT_REPO = "Segulek/Olusia-AI-Studio"
 ALLOWED_FILES = {
     "app.py", "processor.py", "cards.py", "flashcards_ui.py", "ocr_local.py",
@@ -233,7 +233,7 @@ def download_verified_update(release: dict) -> bytes:
 
 # Private, offline backups. Keep these helpers in updater.py so old installed
 # versions can receive them through the existing allowlisted ZIP updater.
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import sqlite3
 from urllib.parse import quote
 
@@ -315,6 +315,14 @@ def _snapshot_database(source: Path, target: Path, name: str) -> None:
         source_con.close()
     target.chmod(0o600)
     _check_database(target, name)
+    # Repack the *snapshot*, never the original database. VACUUM removes
+    # unused SQLite pages, making the ZIP smaller after deleting cards.
+    try:
+        with sqlite3.connect(target, timeout=8) as snapshot:
+            snapshot.execute("VACUUM")
+    except sqlite3.Error as exc:
+        raise BackupError("Nie można skompaktować kopii danych.") from exc
+    _check_database(target, name)
 
 
 def _available_databases(folder: Path) -> list[str]:
@@ -336,7 +344,7 @@ def create_data_backup(data_dir: Path | None = None) -> bytes:
     with tempfile.TemporaryDirectory(prefix="olusia-snapshot-") as temporary:
         output = io.BytesIO()
         recorded = {}
-        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
             for name in names:
                 snapshot = Path(temporary) / name
                 try:
@@ -417,8 +425,42 @@ def _backup_directory(data_dir: Path) -> Path:
     return target
 
 
+def _prune_automatic_backups(backups: Path, now: datetime) -> None:
+    """Keep the latest 7 UTC calendar dates, at most 7 archives per kind.
+
+    Never touch manually created copies or names that do not exactly match
+    our naming convention. Pruning happens only after a successful backup.
+    """
+    cutoff = now.astimezone(timezone.utc).date() - timedelta(days=6)
+    for kind in ("daily", "before-update", "before-restore"):
+        copies: list[tuple[datetime, Path]] = []
+        for path in backups.glob(f"olusia-{kind}-*.zip"):
+            if path.is_symlink() or not path.is_file():
+                continue
+            match = re.fullmatch(
+                rf"olusia-{kind}-(\d{{4}}-\d{{2}}-\d{{2}})"
+                + (r"" if kind == "daily" else r"_\d{2}-\d{2}-\d{2}-\d{6}")
+                + r"\.zip",
+                path.name,
+            )
+            if not match:
+                continue
+            try:
+                day = datetime.strptime(match.group(1), "%Y-%m-%d")
+            except ValueError:
+                continue
+            copies.append((day, path))
+        copies.sort(key=lambda pair: pair[1].name, reverse=True)
+        retained = 0
+        for day, path in copies:
+            if day.date() >= cutoff and retained < 7:
+                retained += 1
+            else:
+                path.unlink(missing_ok=True)
+
+
 def save_data_backup(kind: str = "manual", data_dir: Path | None = None) -> Path | None:
-    """Retain local copies; only auto/daily/restore backups are pruned."""
+    """Keep all manual backups; automated backups only from the last 7 UTC dates."""
     if kind not in {"manual", "daily", "before-update", "before-restore"}:
         raise BackupError("Nieprawidłowy typ kopii.")
     root = Path(data_dir) if data_dir is not None else DATA_DIR
@@ -429,6 +471,7 @@ def save_data_backup(kind: str = "manual", data_dir: Path | None = None) -> Path
     stamp = date.strftime("%Y-%m-%d") if kind == "daily" else date.strftime("%Y-%m-%d_%H-%M-%S-%f")
     destination = backups / f"olusia-{kind}-{stamp}.zip"
     if kind == "daily" and destination.exists():
+        _prune_automatic_backups(backups, date)
         return destination
     payload = create_data_backup(root)
     try:
@@ -440,11 +483,7 @@ def save_data_backup(kind: str = "manual", data_dir: Path | None = None) -> Path
     except (BackupError, OSError) as exc:
         destination.unlink(missing_ok=True)
         raise BackupError("Nie udało się bezpiecznie zapisać kopii na dysku.") from exc
-    for prefix, limit in (("daily", 14), ("before-update", 8), ("before-restore", 8)):
-        copies = sorted(backups.glob(f"olusia-{prefix}-*.zip"), reverse=True)
-        for older in copies[limit:]:
-            if older.is_file() and not older.is_symlink():
-                older.unlink(missing_ok=True)
+    _prune_automatic_backups(backups, date)
     return destination
 
 
