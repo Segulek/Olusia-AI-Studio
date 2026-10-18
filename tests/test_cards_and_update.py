@@ -59,8 +59,8 @@ def test_updates_preserve_venvs_and_reject_older():
         (root / 'processor.py').write_text('core')
         (root / '.venv-core').mkdir()
         (root / '.venv-core' / 'secret').write_text('keep')
-        version = apply_update(_pack('2.6.0'), root)
-        assert version == '2.6.0'
+        version = apply_update(_pack('2.8.0'), root)
+        assert version == '2.8.0'
         assert (root / 'app.py').read_bytes() == b'updated'
         assert (root / '.venv-core' / 'secret').read_text() == 'keep'
         with pytest.raises(UpdateError):
@@ -95,16 +95,16 @@ def test_repo_settings_remain_outside_app_folder():
 def test_check_and_download_release_mocked():
     from updater import check_github_update, download_verified_update, UpdateError
     from unittest.mock import patch
-    payload = _pack('2.6.0', content=b'fresh')
+    payload = _pack('2.8.0', content=b'fresh')
     asset = {
-        'name': 'Olusia_AI_Studio_UPDATE_v2.6.0.zip',
-        'browser_download_url': 'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.6.0/Olusia_AI_Studio_UPDATE_v2.6.0.zip',
+        'name': 'Olusia_AI_Studio_UPDATE_v2.8.0.zip',
+        'browser_download_url': 'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.8.0/Olusia_AI_Studio_UPDATE_v2.8.0.zip',
         'digest': 'sha256:' + hashlib.sha256(payload).hexdigest(),
     }
-    result = {'tag_name':'v2.6.0', 'assets':[asset], 'body':'Nowa wersja'}
+    result = {'tag_name':'v2.8.0', 'assets':[asset], 'body':'Nowa wersja'}
     with patch('updater.urlopen', return_value=BytesIO(json.dumps(result).encode('utf-8'))):
         latest = check_github_update('Segulek/Olusia-AI-Studio')
-    assert latest['version'] == '2.6.0'
+    assert latest['version'] == '2.8.0'
     with patch('updater.urlopen', return_value=BytesIO(payload)):
         assert download_verified_update(latest) == payload
     latest['sha256'] = 'sha256:' + '0'*64
@@ -169,7 +169,7 @@ def test_update_rejects_duplicate_members_and_symlinks():
     with zipfile.ZipFile(raw, 'w') as archive:
         data=b'test'
         archive.writestr('manifest.json', json.dumps({
-            'app_id':'olusia-ai-studio','version':'2.6.0',
+            'app_id':'olusia-ai-studio','version':'2.8.0',
             'files':{'app.py':hashlib.sha256(data).hexdigest()}
         }))
         archive.writestr('payload/app.py',data)
@@ -181,7 +181,7 @@ def test_update_rejects_duplicate_members_and_symlinks():
     with zipfile.ZipFile(raw,'w') as archive:
         data=b'bad'
         archive.writestr('manifest.json', json.dumps({
-            'app_id':'olusia-ai-studio','version':'2.6.0',
+            'app_id':'olusia-ai-studio','version':'2.8.0',
             'files':{'app.py':hashlib.sha256(data).hexdigest()}
         }))
         info=zipfile.ZipInfo('payload/app.py')
@@ -197,7 +197,7 @@ def test_update_rejects_directory_symlink_escape():
     packed=BytesIO()
     with zipfile.ZipFile(packed,'w') as archive:
         archive.writestr('manifest.json',json.dumps({
-            'app_id':'olusia-ai-studio','version':'2.6.0',
+            'app_id':'olusia-ai-studio','version':'2.8.0',
             'files':{'.streamlit/config.toml':hashlib.sha256(data).hexdigest()}
         }))
         archive.writestr('payload/.streamlit/config.toml',data)
@@ -233,9 +233,9 @@ def test_database_file_permissions_are_private():
 
 def test_missing_release_digest_is_rejected():
     from updater import download_verified_update
-    v={'url':'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.6.0/Olusia_AI_Studio_UPDATE_v2.6.0.zip',
-       'version':'2.6.0', 'sha256':''}
-    with patch('updater.urlopen',return_value=BytesIO(_pack('2.6.0'))):
+    v={'url':'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.8.0/Olusia_AI_Studio_UPDATE_v2.8.0.zip',
+       'version':'2.8.0', 'sha256':''}
+    with patch('updater.urlopen',return_value=BytesIO(_pack('2.8.0'))):
         with pytest.raises(UpdateError):
             download_verified_update(v)
 
@@ -340,8 +340,8 @@ def test_backup_must_be_created_before_app_code_update(monkeypatch):
         (installed/'app.py').write_text('old')
         (installed/'processor.py').write_text('old')
         monkeypatch.setattr(updater,'DATA_DIR',data)
-        upgraded=apply_update(_pack('2.6.0'),installed,current_version='2.5.0')
-        assert upgraded=='2.6.0'
+        upgraded=apply_update(_pack('2.8.0'),installed,current_version='2.5.0')
+        assert upgraded=='2.8.0'
         assert any(p.name.startswith('olusia-before-update-') for p in (data/'backups').iterdir())
         assert get_cards(1,data/'fiszki.sqlite3')[0]['front']=='X?'
 
