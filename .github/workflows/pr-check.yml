@@ -17,7 +17,7 @@ jobs:
           python-version: '3.11'
       - name: Zainstaluj zależności testowe
         run: |
-          python -m pip install -q pytest "fsrs>=6.0,<7"
+          python -m pip install -q pytest "fsrs>=6.0,<7" "Pillow>=10,<13"
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
       - name: Sprawdź składnię i testy
