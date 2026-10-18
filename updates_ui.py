@@ -94,9 +94,9 @@ def render_backups() -> None:
     """Local-only export, restore and overview of private data backups."""
     st.markdown("### 💾 Moje kopie zapasowe")
     st.write("Zabezpiecz swoje fiszki, wyniki Learning Plus, historię powtórek i zakładki w nagraniach.")
-    st.info("🌷 Raz dziennie przy uruchomieniu studia zapisujemy lokalną kopię. "
+    st.info("🌷 Raz dziennie przy uruchomieniu studia zapisujemy lokalną, skompresowaną kopię ZIP. "
             "Tworzymy ją także przed aktualizacją i przywracaniem danych. "
-            "Nie wysyłamy niczego na GitHub ani do chmury.")
+            "Automatyczne kopie zachowujemy przez 7 dni (maksymalnie 7 każdego rodzaju). Ręczne kopie pozostają do samodzielnego usunięcia. Nie wysyłamy niczego na GitHub ani do chmury.")
 
     if st.button("💜 Zrób kopię zapasową teraz", type="primary", key="backup_save_now"):
         try:
