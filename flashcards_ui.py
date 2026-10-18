@@ -10,7 +10,7 @@ import streamlit as st
 from cards import (
     CardsError, Flashcard, cards_as_csv, delete_deck, generate_flashcards,
     get_cards, list_decks, ollama_models, save_deck, set_known,
-    generate_visual_flashcards, VISION_MODELS,
+    generate_visual_flashcards, VISION_MODELS, _require_english_cards,
 )
 from ocr_local import OCRError, recognize_image
 
@@ -152,6 +152,7 @@ def render_flashcards() -> None:
             if save:
                 valid = [c for c in edits if c.front.strip() and c.back.strip()]
                 try:
+                    _require_english_cards(valid)
                     saved_id = save_deck(deck_name, valid)
                     st.session_state.pop("draft_flashcards", None)
                     st.session_state.pop("visual_note_structure", None)
