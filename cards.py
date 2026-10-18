@@ -467,8 +467,11 @@ class VisualNotesResult:
 
 def _prepare_note_image(filename: str, contents: bytes) -> str:
     """Verify and resize image locally, returning a base64 JPEG for Ollama."""
-    from PIL import Image, ImageOps, UnidentifiedImageError
-    from PIL.Image import DecompressionBombError
+    try:
+        from PIL import Image, ImageOps, UnidentifiedImageError
+        from PIL.Image import DecompressionBombError
+    except ImportError as exc:
+        raise CardsError("Brakuje biblioteki Pillow do obrazów. Uruchom 1_ZAINSTALUJ.command lub doinstaluj Pillow.") from exc
     import subprocess
     import tempfile
 
