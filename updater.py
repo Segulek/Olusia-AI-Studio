@@ -20,7 +20,7 @@ import zipfile
 
 SETTINGS_PATH = Path.home() / "Library" / "Application Support" / "Olusia AI Studio" / "updates.json"
 
-VERSION = "2.5.1"
+VERSION = "2.6.0"
 DEFAULT_REPO = "Segulek/Olusia-AI-Studio"
 ALLOWED_FILES = {
     "app.py", "processor.py", "cards.py", "flashcards_ui.py", "ocr_local.py",

@@ -31,14 +31,14 @@ def test_save_study_export_delete():
 
 def test_local_generation_json():
     response = {"message": {"content": json.dumps({"cards": [
-        {"front": "Co to jest fotosynteza?", "back": "Proces wytwarzania substancji organicznych."},
-        {"front": "Co to jest fotosynteza?", "back": "Duplikat"},
-        {"front": "Co jest potrzebne roślinom?", "back": "Światło i woda."},
+        {"front": "What is photosynthesis?", "back": "Production of organic compounds using light energy."},
+        {"front": "What is photosynthesis?", "back": "Duplicate"},
+        {"front": "What do plants need for photosynthesis?", "back": "Light and water."},
     ]}, ensure_ascii=False)}}
     with patch('cards.urlopen', return_value=BytesIO(json.dumps(response).encode('utf-8'))) as mock_url:
         cards = generate_flashcards('Fotosynteza zachodzi w liściach roślin, wymaga światła oraz wody.', 10, 'Łatwy')
     assert len(cards) == 2
-    assert 'fotosynteza' in cards[0].front.lower()
+    assert 'photosynthesis' in cards[0].front.lower()
     assert mock_url.call_args.args[0].full_url == 'http://127.0.0.1:11434/api/chat'
 
 
@@ -59,8 +59,8 @@ def test_updates_preserve_venvs_and_reject_older():
         (root / 'processor.py').write_text('core')
         (root / '.venv-core').mkdir()
         (root / '.venv-core' / 'secret').write_text('keep')
-        version = apply_update(_pack('2.6.0'), root)
-        assert version == '2.6.0'
+        version = apply_update(_pack('2.8.0'), root)
+        assert version == '2.8.0'
         assert (root / 'app.py').read_bytes() == b'updated'
         assert (root / '.venv-core' / 'secret').read_text() == 'keep'
         with pytest.raises(UpdateError):
@@ -95,16 +95,16 @@ def test_repo_settings_remain_outside_app_folder():
 def test_check_and_download_release_mocked():
     from updater import check_github_update, download_verified_update, UpdateError
     from unittest.mock import patch
-    payload = _pack('2.6.0', content=b'fresh')
+    payload = _pack('2.8.0', content=b'fresh')
     asset = {
-        'name': 'Olusia_AI_Studio_UPDATE_v2.6.0.zip',
-        'browser_download_url': 'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.6.0/Olusia_AI_Studio_UPDATE_v2.6.0.zip',
+        'name': 'Olusia_AI_Studio_UPDATE_v2.8.0.zip',
+        'browser_download_url': 'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.8.0/Olusia_AI_Studio_UPDATE_v2.8.0.zip',
         'digest': 'sha256:' + hashlib.sha256(payload).hexdigest(),
     }
-    result = {'tag_name':'v2.6.0', 'assets':[asset], 'body':'Nowa wersja'}
+    result = {'tag_name':'v2.8.0', 'assets':[asset], 'body':'Nowa wersja'}
     with patch('updater.urlopen', return_value=BytesIO(json.dumps(result).encode('utf-8'))):
         latest = check_github_update('Segulek/Olusia-AI-Studio')
-    assert latest['version'] == '2.6.0'
+    assert latest['version'] == '2.8.0'
     with patch('updater.urlopen', return_value=BytesIO(payload)):
         assert download_verified_update(latest) == payload
     latest['sha256'] = 'sha256:' + '0'*64
@@ -169,7 +169,7 @@ def test_update_rejects_duplicate_members_and_symlinks():
     with zipfile.ZipFile(raw, 'w') as archive:
         data=b'test'
         archive.writestr('manifest.json', json.dumps({
-            'app_id':'olusia-ai-studio','version':'2.6.0',
+            'app_id':'olusia-ai-studio','version':'2.8.0',
             'files':{'app.py':hashlib.sha256(data).hexdigest()}
         }))
         archive.writestr('payload/app.py',data)
@@ -181,7 +181,7 @@ def test_update_rejects_duplicate_members_and_symlinks():
     with zipfile.ZipFile(raw,'w') as archive:
         data=b'bad'
         archive.writestr('manifest.json', json.dumps({
-            'app_id':'olusia-ai-studio','version':'2.6.0',
+            'app_id':'olusia-ai-studio','version':'2.8.0',
             'files':{'app.py':hashlib.sha256(data).hexdigest()}
         }))
         info=zipfile.ZipInfo('payload/app.py')
@@ -197,7 +197,7 @@ def test_update_rejects_directory_symlink_escape():
     packed=BytesIO()
     with zipfile.ZipFile(packed,'w') as archive:
         archive.writestr('manifest.json',json.dumps({
-            'app_id':'olusia-ai-studio','version':'2.6.0',
+            'app_id':'olusia-ai-studio','version':'2.8.0',
             'files':{'.streamlit/config.toml':hashlib.sha256(data).hexdigest()}
         }))
         archive.writestr('payload/.streamlit/config.toml',data)
@@ -233,9 +233,9 @@ def test_database_file_permissions_are_private():
 
 def test_missing_release_digest_is_rejected():
     from updater import download_verified_update
-    v={'url':'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.6.0/Olusia_AI_Studio_UPDATE_v2.6.0.zip',
-       'version':'2.6.0', 'sha256':''}
-    with patch('updater.urlopen',return_value=BytesIO(_pack('2.6.0'))):
+    v={'url':'https://github.com/Segulek/Olusia-AI-Studio/releases/download/v2.8.0/Olusia_AI_Studio_UPDATE_v2.8.0.zip',
+       'version':'2.8.0', 'sha256':''}
+    with patch('updater.urlopen',return_value=BytesIO(_pack('2.8.0'))):
         with pytest.raises(UpdateError):
             download_verified_update(v)
 
@@ -340,8 +340,8 @@ def test_backup_must_be_created_before_app_code_update(monkeypatch):
         (installed/'app.py').write_text('old')
         (installed/'processor.py').write_text('old')
         monkeypatch.setattr(updater,'DATA_DIR',data)
-        upgraded=apply_update(_pack('2.6.0'),installed,current_version='2.5.0')
-        assert upgraded=='2.6.0'
+        upgraded=apply_update(_pack('2.8.0'),installed,current_version='2.5.0')
+        assert upgraded=='2.8.0'
         assert any(p.name.startswith('olusia-before-update-') for p in (data/'backups').iterdir())
         assert get_cards(1,data/'fiszki.sqlite3')[0]['front']=='X?'
 
@@ -409,3 +409,83 @@ def test_backup_zip_deflate_max_compression_and_compact_without_touching_live_db
             assert item.compress_size < item.file_size
             assert item.file_size < live_size
         assert validate_data_backup(compressed)['fiszki.sqlite3'][:16].startswith(b'SQLite format 3')
+
+
+
+def test_generated_flashcards_must_be_english():
+    from cards import _require_english_cards
+    assert _require_english_cards([Flashcard("What is the axial skeleton?", "Skull, ribs and vertebrae.")])
+    with pytest.raises(CardsError):
+        _require_english_cards([Flashcard("Jakie kości?", "Skull.")])
+    with pytest.raises(CardsError):
+        _require_english_cards([Flashcard("What is the sternum?", "Mostek jest kością.")])
+    response = {"message":{"content":json.dumps({"cards":[
+        {"front":"Jakie elementy?", "back":"Czaszka i żebra"}]})}}
+    with patch('cards.urlopen',return_value=BytesIO(json.dumps(response).encode('utf-8'))):
+        with pytest.raises(CardsError):
+            generate_flashcards("The axial skeleton has a skull and rib cage, forming the central framework.", 10, "Standardowy")
+
+
+def test_visual_notes_examine_actual_image_and_return_english_flashcards():
+    import base64
+    from PIL import Image
+    from cards import generate_visual_flashcards
+    image = BytesIO()
+    Image.new("RGB", (800, 500), "white").save(image, format="PNG")
+    response = {"message":{"content":json.dumps({
+        "structure":"A branch splits axial and appendicular skeleton.",
+        "uncertainties":["Small handwritten note at the right edge is unreadable."],
+        "cards":[
+            {"front":"Which structures form the axial skeleton?",
+             "back":"Skull, vertebral column, ribs and sternum.",
+             "evidence":"Left branch under the heading AXIAL SKELETON"},
+            {"front":"What forms the pectoral girdle?",
+             "back":"Clavicles and scapulae.",
+             "evidence":"Right-hand appendicular skeleton list"},
+            {"front":"What is the fifth bone function?",
+             "back":"Blood cell production (haematopoiesis).",
+             "evidence":"Bottom-left numbered bone function list"}
+        ]
+    },ensure_ascii=False)}}
+    with patch("cards.urlopen",return_value=BytesIO(json.dumps(response).encode("utf-8"))) as mocked:
+        result=generate_visual_flashcards([("skeleton.png",image.getvalue())],10,"Standardowy")
+    assert len(result.cards)==3
+    assert "axial" in result.structure
+    assert len(result.uncertainties)==1
+    request=mocked.call_args.args[0]
+    data=json.loads(request.data)
+    assert data["model"]=="qwen3-vl:2b"
+    imgs=data["messages"][1]["images"]
+    assert len(imgs)==1
+    assert base64.b64decode(imgs[0]).startswith(b"\xff\xd8")
+    prompt=data["messages"][1]["content"]
+    assert "layout" in prompt and "English" in prompt and "evidence" in prompt
+
+
+def test_visual_notes_reject_bad_images_and_unsupported_claims():
+    from PIL import Image
+    from cards import generate_visual_flashcards
+    with pytest.raises(CardsError):
+        generate_visual_flashcards([("notes.txt", b"not an image")], 10, "Standardowy")
+    with pytest.raises(CardsError):
+        generate_visual_flashcards([("notes.png", b"\x89PNG\r\nfake")], 10, "Standardowy")
+    with pytest.raises(CardsError):
+        generate_visual_flashcards([("notes.jpg", b"\x00"*13_000_000)], 10, "Standardowy")
+    with pytest.raises(CardsError):
+        generate_visual_flashcards([("note.png", b"x")]*3, 10, "Standardowy")
+    image=BytesIO()
+    Image.new("RGB",(500,500),"white").save(image,format="PNG")
+    ungrounded={"message":{"content":json.dumps({"structure":"No readable labels", "uncertainties":["Unreadable"],
+        "cards":[{"front":"What is the ulna?", "back":"A long bone of the forearm.", "evidence":""}]})}}
+    with patch("cards.urlopen",return_value=BytesIO(json.dumps(ungrounded).encode())):
+        with pytest.raises(CardsError):
+            generate_visual_flashcards([("notes.png",image.getvalue())], 10, "Standardowy")
+
+
+def test_text_generator_prompt_explicit_english_only():
+    response={"message":{"content":json.dumps({"cards":[{"front":"What is a rib?", "back":"A bone forming part of the thoracic cage."}]})}}
+    with patch("cards.urlopen",return_value=BytesIO(json.dumps(response).encode())) as mocked:
+        generate_flashcards("The rib cage forms the bony frame around the thorax and protects the organs.",3,"Standardowy")
+    prompt=json.loads(mocked.call_args.args[0].data)["messages"][1]["content"]
+    assert "entirely in English" in prompt
+    assert "Do not include Polish" in prompt

@@ -69,6 +69,16 @@ else
 fi
 echo "Pobieram lokalny model $MODEL — tylko przy pierwszym uruchomieniu..."
 ollama pull "$MODEL"
+echo
+echo "🧠 Dodatkowy tryb rozumienia zdjęć notatek (opcjonalny)"
+echo "  Model qwen3-vl:2b zajmuje około 1,9 GB i wymaga Ollama 0.12.7+."
+read -r -p "Czy pobrać model Vision AI? [t/N]: " VISION_CHOICE || true
+if [ "${VISION_CHOICE:-n}" = "t" ] || [ "${VISION_CHOICE:-n}" = "T" ] || [ "${VISION_CHOICE:-n}" = "y" ] || [ "${VISION_CHOICE:-n}" = "Y" ]; then
+  echo "Pobieram osobny lokalny model obrazu..."
+  ollama pull qwen3-vl:2b
+else
+  echo "Pominięto model obrazu — możesz pobrać go później: ollama pull qwen3-vl:2b"
+fi
 if ! command -v tesseract >/dev/null 2>&1; then
   echo "Nie znaleziono Tesseract po instalacji."
   exit 1
