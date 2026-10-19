@@ -805,7 +805,7 @@ def generate_visual_flashcards(
             )
 
         raw_source = "\n".join("- " + fact for fact in facts)
-        source = (raw_source + "\n" + supplementary_text.strip()).strip()
+        source = ("English medical study note facts:\n" + raw_source + "\n" + supplementary_text.strip()).strip()
         # Generate in small sets to avoid a second output-limit failure.
         target_count = min(5, count, len(facts))
         try:
