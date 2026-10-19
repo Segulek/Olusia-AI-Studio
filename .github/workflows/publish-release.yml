@@ -12,6 +12,12 @@ on:
       - processor.py
       - ocr_local.py
       - dev/make_update.py
+      - dev/make_windows.py
+      - 1_INSTALL_WINDOWS.bat
+      - 2_START_WINDOWS.bat
+      - 3_INSTALL_AI_WINDOWS.bat
+      - 4_OPTIONAL_DEMUCS_WINDOWS.bat
+      - WINDOWS_README.txt
   workflow_dispatch:
 
 permissions:
@@ -35,7 +41,7 @@ jobs:
           python -m pip install -q pytest "fsrs>=6.0,<7" "Pillow>=10,<13"
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
-          python -m pytest -q tests/test_cards_and_update.py tests/test_processor.py
+          python -m pytest -q tests/test_cards_and_update.py tests/test_processor.py tests/test_windows.py
       - name: Zbuduj i opublikuj aktualizację
         shell: bash
         env:
@@ -50,6 +56,7 @@ jobs:
             exit 0
           fi
           python dev/make_update.py "Olusia_AI_Studio_UPDATE_${TAG}.zip"
-          gh release create "$TAG" "Olusia_AI_Studio_UPDATE_${TAG}.zip" \
+          python dev/make_windows.py "Olusia_AI_Studio_Windows_${TAG}.zip"
+          gh release create "$TAG" "Olusia_AI_Studio_UPDATE_${TAG}.zip" "Olusia_AI_Studio_Windows_${TAG}.zip" \
             --target "$GITHUB_SHA" --title "Olusia AI Studio $TAG" \
-            --notes "Aktualizacja Olusia AI Studio. W aplikacji wybierz Aktualizacje → Sprawdź → Pobierz → Zainstaluj."
+            --notes "Olusia AI Studio dla macOS i Windows. Windows: pobierz paczkę Windows, rozpakuj i uruchom 1_INSTALL_WINDOWS.bat. Mac: zaktualizuj przez zakładkę Aktualizacje."
