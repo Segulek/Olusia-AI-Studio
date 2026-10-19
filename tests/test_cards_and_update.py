@@ -598,9 +598,10 @@ def test_empty_page_does_not_trigger_infinite_attempts_or_invent_cards():
                    "uncertainties":["Please crop"], "cards":[]})}}
     with patch("cards.urlopen", side_effect=lambda *_args, **_kwargs: BytesIO(json.dumps(payload).encode())) as mocked:
         result=generate_visual_flashcards([("page.png",png.getvalue())],10,"Standardowy")
-    assert mocked.call_count == 1
+    assert mocked.call_count == 3  # vision plus plain-text fallback plus text-card attempt
     assert result.cards == []
     assert "Unreadable" in result.structure
+    assert any("text_cards_failed" in row for row in result.diagnostics)
 
 
 
@@ -687,3 +688,71 @@ def test_vision_partial_photo_does_not_require_model_to_decode_all_handwriting()
         result=generate_visual_flashcards([("nucleus.png",page.getvalue())],5,"Standardowy")
     assert len(result.cards)==1
     assert result.uncertainties
+
+
+
+def test_vision_fallback_recovers_cards_using_same_local_model():
+    from PIL import Image
+    from cards import generate_visual_flashcards, STUDIO_MODEL
+    from urllib.request import Request
+    photo=BytesIO()
+    Image.new("RGB",(500,500),"white").save(photo,"PNG")
+    steps=[]
+    def fake_ollama(req: Request, **_kwargs):
+        request=json.loads(req.data)
+        steps.append(request)
+        assert request["model"] == STUDIO_MODEL
+        if len(steps)==1:
+            assert request["messages"][1].get("images")
+            return BytesIO(json.dumps({"message":{"content":json.dumps({
+                "structure":"Notes on nucleus", "uncertainties":["One word is unclear"],
+                "cards":[]})}}).encode())
+        if len(steps)==2:
+            assert request["messages"][1].get("images")
+            assert "format" not in request
+            return BytesIO(json.dumps({"message":{"content":
+                "- The nucleus is enclosed by a double-membrane nuclear envelope.\n"
+                "- Chromatin consists of DNA and associated proteins."}}).encode())
+        assert not request["messages"][1].get("images")
+        return BytesIO(json.dumps({"message":{"content":json.dumps({"cards":[
+            {"front":"What encloses the nucleus?",
+             "back":"A double-membrane nuclear envelope."},
+            {"front":"What is chromatin composed of?",
+             "back":"DNA and associated proteins."}
+        ]})}}).encode())
+    with patch("cards.urlopen",side_effect=fake_ollama):
+        result=generate_visual_flashcards([("nucleus.png",photo.getvalue())],10,"Standardowy")
+    assert len(result.cards)==2
+    assert len(steps)==3
+    assert any("plain_text_fallback_succeeded" in item for item in result.diagnostics)
+    assert any("second-pass AI" in item for item in result.review_flags)
+
+
+def test_vision_empty_reply_reports_real_reason_not_handwriting_quality():
+    from PIL import Image
+    from cards import generate_visual_flashcards
+    image=BytesIO()
+    Image.new("RGB",(600,500),"white").save(image,"PNG")
+    returns=[
+        {"message":{"content":""}, "done_reason":"stop"},
+        {"message":{"content":"NO LEGIBLE FACTS"}, "done_reason":"stop"},
+    ]
+    with patch("cards.urlopen",side_effect=[
+        BytesIO(json.dumps(item).encode()) for item in returns
+    ]) as calls:
+        result=generate_visual_flashcards([("note.png",image.getvalue())],10,"Standardowy")
+    assert calls.call_count == 2
+    assert not result.cards
+    assert any("empty_response" in line for line in result.diagnostics)
+    assert any("plain_text_no_facts" in line for line in result.diagnostics)
+
+
+def test_vision_accepts_common_model_aliases_for_flashcards():
+    from cards import _interpret_vision_result
+    data={"structure":"Nucleus","uncertainties":[],
+          "flashcards":[{"question":"What is a gene?",
+                         "answer":"A functional segment of DNA.",
+                         "evidence":"Pink handwritten line"}]}
+    result=_interpret_vision_result(data,5)
+    assert len(result.cards)==1
+    assert result.cards[0].front=="What is a gene?"
