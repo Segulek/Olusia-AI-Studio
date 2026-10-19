@@ -18,7 +18,8 @@ import sqlite3
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-APP_DIR = Path.home() / "Library" / "Application Support" / "Olusia AI Studio"
+APP_DIR = (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "Olusia AI Studio"
+           if os.name == "nt" else Path.home() / "Library" / "Application Support" / "Olusia AI Studio")
 DEFAULT_DB = APP_DIR / "fiszki.sqlite3"
 LOCAL_OLLAMA = "http://127.0.0.1:11434"
 STUDIO_MODEL = "qwen3-vl:4b"
