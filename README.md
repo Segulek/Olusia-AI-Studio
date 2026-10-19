@@ -1,5 +1,19 @@
-# 🌷 Olusia AI Studio 2.8.0 — macOS + Windows
+# 🌷 Olusia AI Studio 2.8.1 — poprawka rozumienia pisma odręcznego
 
+Poprawiliśmy błędy analizy zdjęć w jednym lokalnym modelu **qwen3-vl:4b**. Obsługa zdjęć jest nadal prywatna, bez chmury, a **fiszki są w całości po angielsku**.
+
+- Model Ollama otrzymuje teraz jawne **`think: false`**. Wcześniej odpowiedzi modeli zdolnych do reasoning mogły pojawiać się jako puste pole `message.content`.
+- Zdjęcie trafia do Ollama jako **jeden obraz na żądanie** zamiast całej strony plus dwa zbliżenia jednocześnie. To zmniejsza chwilowe zużycie RAM na słabszych MacBookach.
+- Jeśli cała strona nie daje poprawnego wyniku, aplikacja próbuje powiększonych fragmentów i zachowuje te fiszki, które da się uzyskać z czytelnych informacji.
+- Obsługiwane są odpowiedzi JSON z dodatkowymi znacznikami oraz puste/ucięte wiadomości Ollamy.
+- Dodatkowe komunikaty pomagają odróżnić problemy z modelem, pamięcią RAM, Ollamą i niespójnym JSON.
+- Testy obejmują obraz WebP o wymiarach **1121 × 1584** (jak przesłane zdjęcie z notatkami), bez dołączania prywatnego zdjęcia studentki do publicznego repozytorium.
+
+**Ograniczenie:** automatyczne testy symulują odpowiedzi modelu. Nie gwarantują, że rzeczywisty Qwen poprawnie przeczyta każde pismo. Jeśli na komputerze nadal jest błąd, potrzebny jest dokładny komunikat i dane diagnostyczne z lokalnej Ollamy. Nie trzeba usuwać fiszek ani zmieniać silnika.
+
+Po aktualizacji uruchom aplikację ponownie. Jeśli model nie działa, sprawdź `ollama list`, `ollama --version` i `ollama pull qwen3-vl:4b`.
+
+---
 **Nowość: instalacja na Windows 10/11 (x64).** Te same fiszki medyczne po angielsku, Learning Plus, lokalny Qwen3-VL 4B, FSRS, kopie danych, Whisper i narzędzia audio. Na Windows program działa w przeglądarce pod prywatnym adresem \`127.0.0.1:8501\`, a nie jako podpisany instalator \`.exe\`.
 
 ## 🪟 Windows: uruchomienie

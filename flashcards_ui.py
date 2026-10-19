@@ -37,9 +37,15 @@ def render_flashcards() -> None:
         )
         picture_mode = bool(uploaded)
         if picture_mode:
-            st.info("🧠 AI will analyze headings, relationships and zoomed sections. "
+            st.info("🧠 AI will analyze headings, relationships and zoomed sections one at a time. "
                     "Illegible words will not block cards from the rest of the page.")
             st.caption("Photographs are processed by Ollama on this Mac. The model may still make mistakes.")
+        with st.expander("🛠️ AI troubleshooting (if a photo fails)"):
+            st.write("If the same photo fails again, check that Ollama is running, "
+                     "qwen3-vl:4b is installed, and your Mac has enough free RAM. "
+                     "Run `ollama list` and `ollama --version` in Terminal, "
+                     "then restart Ollama if necessary. "
+                     "The error message will help distinguish model, RAM and response issues.")
         with st.expander("🔧 Advanced: classical OCR (optional)"):
             st.caption("For clear printed notes only. Not recommended for Olusia's handwriting.")
             if st.button("Extract plain text with OCR", disabled=not uploaded or len(uploaded)>2):

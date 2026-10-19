@@ -474,7 +474,7 @@ def test_visual_notes_examine_actual_image_and_return_english_flashcards():
     assert len(imgs)==1
     assert base64.b64decode(imgs[0]).startswith(b"\xff\xd8")
     prompt=data["messages"][1]["content"]
-    assert "headings" in prompt and "ENGLISH" in prompt and "evidence" in prompt
+    assert "headings" in prompt and "English" in prompt and "evidence" in prompt
 
 
 def test_visual_notes_reject_bad_images_and_unsupported_claims():
@@ -537,15 +537,15 @@ def test_handwritten_page_is_split_into_full_image_and_magnified_halves():
         "cards":[{"front":"What are the two major skeletal divisions?",
                   "back":"Axial and appendicular.",
                   "evidence":"Branch at the middle of the page"}]})}}
-    with patch("cards.urlopen", return_value=BytesIO(json.dumps(response).encode())) as call:
+    with patch("cards.urlopen", side_effect=lambda *_a, **_k: BytesIO(json.dumps(response).encode())) as call:
         result=generate_visual_flashcards([("image.png", png.getvalue())], 6, "Standardowy",
                                            supplementary_text="Axial skeleton is shown on the left.")
     data=json.loads(call.call_args.args[0].data)
     images=data["messages"][1]["images"]
-    assert len(images)==3
-    decoded=[Image.open(BytesIO(base64.b64decode(x))) for x in images]
-    assert decoded[0].height > decoded[1].height
-    assert decoded[1].width >= decoded[0].width
+    assert len(images)==1
+    assert Image.open(BytesIO(base64.b64decode(images[0]))).width >= 1000
+    assert data["think"] is False
+    assert data["options"]["num_ctx"] == 4096
     assert "Axial skeleton is shown on the left." in data["messages"][1]["content"]
     assert len(result.cards)==1
     assert "A tiny red" in result.uncertainties[0]
@@ -562,10 +562,11 @@ def test_vision_only_disclaimer_retries_once_and_salvages_partial_notes():
     second={"message":{"content":json.dumps({
         "structure":"", "uncertainties": [],
         "cards":[{"front":"What is haematopoiesis?", "back":"Blood cell formation."}]})}}
-    with patch("cards.urlopen", side_effect=[
-            BytesIO(json.dumps(first).encode()), BytesIO(json.dumps(second).encode())]) as mocked:
+    replies = [first, second, second]
+    with patch("cards.urlopen", side_effect=lambda *_a, **_k: BytesIO(
+            json.dumps(replies.pop(0)).encode())) as mocked:
         result=generate_visual_flashcards([("page.png",png.getvalue())],5,"Standardowy")
-    assert mocked.call_count == 2
+    assert mocked.call_count == 3
     assert len(result.cards)==1
     assert "bone function" in result.structure
     assert "illegible" in result.uncertainties[0]
@@ -597,6 +598,92 @@ def test_empty_page_does_not_trigger_infinite_attempts_or_invent_cards():
                    "uncertainties":["Please crop"], "cards":[]})}}
     with patch("cards.urlopen", side_effect=lambda *_args, **_kwargs: BytesIO(json.dumps(payload).encode())) as mocked:
         result=generate_visual_flashcards([("page.png",png.getvalue())],10,"Standardowy")
-    assert mocked.call_count == 2
+    assert mocked.call_count == 1
     assert result.cards == []
     assert "Unreadable" in result.structure
+
+
+
+def test_handwritten_notes_photo_size_is_processed_one_image_per_request():
+    """Matches a real 1121x1584 handwritten WEBP format without publishing the private image."""
+    from PIL import Image, ImageDraw
+    from cards import generate_visual_flashcards
+    import base64
+    picture = Image.new("RGB", (1121, 1584), "white")
+    draw = ImageDraw.Draw(picture)
+    draw.text((40, 110), "Nuclear membrane / chromatin / DNA", fill="black")
+    draw.text((40, 650), "Functions of the nucleus", fill="black")
+    out = BytesIO()
+    picture.save(out, "WEBP")
+    response = {"message":{"content":json.dumps({
+        "structure": "Nuclear structure and functions",
+        "uncertainties": ["Small handwriting at the edge is unclear."],
+        "cards":[{"front":"What forms chromosomes?",
+                  "back":"Chromatin condenses into chromosomes.",
+                  "evidence":"Upper text about chromatin"}]})}}
+    def serve(request, **_kwargs):
+        payload=json.loads(request.data)
+        assert payload["think"] is False
+        assert len(payload["messages"][1]["images"]) == 1
+        assert payload["model"] == "qwen3-vl:4b"
+        assert base64.b64decode(payload["messages"][1]["images"][0]).startswith(b"\xff\xd8")
+        return BytesIO(json.dumps(response).encode())
+    with patch("cards.urlopen", side_effect=serve) as mocked:
+        result = generate_visual_flashcards(
+            [("olusia-notes.webp", out.getvalue())], 9, "Standardowy")
+    assert 1 <= mocked.call_count <= 3
+    assert len(result.cards) == 1
+
+
+def test_local_vision_accepts_code_fenced_json_and_empty_thinking_response():
+    from cards import _vision_call, STUDIO_MODEL
+    good={"message":{"content":chr(96)*3 + "json\n" + json.dumps({
+        "structure":"Nucleus", "uncertainties":[],
+        "cards":[{"front":"What is chromatin?", "back":"DNA and protein.",
+                  "evidence":"Top of page"}]}) + "\n" + chr(96)*3}}
+    with patch("cards.urlopen", return_value=BytesIO(json.dumps(good).encode())) as mocked:
+        result = _vision_call(STUDIO_MODEL, ["base64photobytes"], "Use English")
+        payload=json.loads(mocked.call_args.args[0].data)
+        assert payload["think"] is False
+        assert payload["keep_alive"] == "2m"
+    assert len(result["cards"]) == 1
+    empty={"message":{"content":"", "thinking":"There is an unclear note."}, "done_reason":"stop"}
+    with patch("cards.urlopen", return_value=BytesIO(json.dumps(empty).encode())):
+        result = _vision_call(STUDIO_MODEL, ["base64photobytes"], "Use English")
+    assert result["cards"] == []
+    assert "empty" in result["uncertainties"][0].lower()
+
+
+def test_malformed_whole_page_does_not_discard_readable_zoom_cards():
+    from PIL import Image
+    from cards import generate_visual_flashcards
+    out=BytesIO()
+    Image.new("RGB", (1121, 1584), "white").save(out,"WEBP")
+    good={"message":{"content":json.dumps({
+        "structure":"Lower half: the nucleus functions",
+        "uncertainties":[], "cards":[{"front":"What does the nucleus regulate?",
+             "back":"Cellular metabolic activities and the cell cycle.",
+             "evidence":"Functions of Nucleus section"}]})}}
+    calls=[{"message":{"content":"broken {{"}}, good, good]
+    with patch("cards.urlopen", side_effect=lambda *_a, **_k: BytesIO(json.dumps(calls.pop(0)).encode())) as mocked:
+        result=generate_visual_flashcards([("notes.webp",out.getvalue())],8,"Standardowy")
+    assert mocked.call_count == 3
+    assert result.cards[0].front == "What does the nucleus regulate?"
+    assert any("incomplete JSON" in warning for warning in result.uncertainties)
+
+
+def test_vision_partial_photo_does_not_require_model_to_decode_all_handwriting():
+    from PIL import Image
+    from cards import generate_visual_flashcards
+    page=BytesIO()
+    Image.new("RGB",(500,500),"white").save(page,"PNG")
+    reply={"message":{"content":json.dumps({
+        "structure":"Notes on the cell nucleus",
+        "uncertainties":["Some handwriting cannot be confidently read."],
+        "cards":[{"front":"What is a gene?",
+                  "back":"A functional segment of DNA.",
+                  "evidence":"Red sentence about DNA and genes"}]})}}
+    with patch("cards.urlopen", return_value=BytesIO(json.dumps(reply).encode())):
+        result=generate_visual_flashcards([("nucleus.png",page.getvalue())],5,"Standardowy")
+    assert len(result.cards)==1
+    assert result.uncertainties
