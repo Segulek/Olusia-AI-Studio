@@ -1,4 +1,4 @@
-# Run on Python 3.11, both Apple Silicon and Intel.
+# Python 3.11 on macOS and Windows 10/11 x64.
 streamlit>=1.40,<2
 faster-whisper>=1.1,<2
 fsrs>=6.0,<7
