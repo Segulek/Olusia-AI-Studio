@@ -130,7 +130,7 @@ def render_flashcards() -> None:
                            "The model's evidence descriptions are not an independent verification.")
             if st.session_state.get("visual_note_diagnostics"):
                 with st.expander("🛠️ AI Diagnostics — copy these lines if the image fails"):
-                    st.code("\\n".join(st.session_state["visual_note_diagnostics"]), language="text")
+                    st.code("\n".join(st.session_state["visual_note_diagnostics"]), language="text")
                     st.caption("The report contains only request counts and failure categories, "
                                "not your photo, private notes or model output.")
 
