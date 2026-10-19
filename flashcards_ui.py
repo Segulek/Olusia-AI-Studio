@@ -10,7 +10,7 @@ import streamlit as st
 from cards import (
     CardsError, Flashcard, cards_as_csv, delete_deck, generate_flashcards,
     get_cards, list_decks, ollama_models, save_deck, set_known,
-    generate_visual_flashcards, STUDIO_MODEL, _require_english_cards,
+    generate_visual_flashcards, STUDIO_MODEL, select_studio_model, _require_english_cards,
 )
 from ocr_local import OCRError, recognize_image
 
@@ -66,13 +66,14 @@ def render_flashcards() -> None:
             level = st.selectbox("Difficulty", ["Łatwy", "Standardowy", "Trudniejszy"], index=1,
                                  format_func=lambda value: {"Łatwy": "Easy", "Standardowy": "Standard",
                                                             "Trudniejszy": "Challenging"}[value])
+        selected_ai = None
         try:
-            available = ollama_models()
-            if STUDIO_MODEL not in available:
-                st.warning("One-time setup needed: install the local model with 5_DOINSTALUJ_FISZKI.command "
-                           "or run: ollama pull " + STUDIO_MODEL + ". No other model is required.")
+            selected_ai = select_studio_model(ollama_models())
+            if selected_ai is None:
+                st.warning("Olusia AI needs one local model. Install it once: ollama pull "
+                           + STUDIO_MODEL + ". No other model is required.")
             else:
-                st.caption("🟢 Olusia AI is ready on this computer.")
+                st.caption("🟢 Olusia AI is ready. Model: " + selected_ai)
         except CardsError as exc:
             st.info(str(exc))
 
@@ -82,11 +83,13 @@ def render_flashcards() -> None:
         if st.button("✨ Create English flashcards", type="primary",
                      disabled=invalid_photos or not (picture_mode or valid_text)):
             try:
+                if selected_ai is None:
+                    raise CardsError("Nie znaleziono lokalnego modelu AI. Uruchom: ollama pull " + STUDIO_MODEL)
                 with st.spinner("Reading up to five clear medical facts, then creating English flashcards…"):
                     if picture_mode:
                         result = generate_visual_flashcards(
                             [(file.name, file.getvalue()) for file in uploaded],
-                            count, level, supplementary_text=source,
+                            count, level, model=selected_ai, supplementary_text=source,
                         )
                         cards = result.cards
                         st.session_state["visual_note_structure"] = result.structure
@@ -95,7 +98,7 @@ def render_flashcards() -> None:
                         st.session_state["visual_note_diagnostics"] = result.diagnostics
                         st.session_state["draft_needs_review"] = bool(cards)
                     else:
-                        cards = generate_flashcards(source, count, level)
+                        cards = generate_flashcards(source, count, level, model=selected_ai)
                         st.session_state.pop("visual_note_structure", None)
                         st.session_state.pop("visual_note_uncertainties", None)
                         st.session_state.pop("visual_note_review_flags", None)
@@ -402,7 +405,10 @@ def render_oral_exam(decks: list[dict]) -> None:
     if st.button("🧠 Porównaj odpowiedź z fiszką", disabled=not answer.strip(), key="oral_compare"):
         try:
             with st.spinner("Lokalne AI porównuje odpowiedź ze wzorcem…"):
-                result = oral_feedback(card['front'], card['back'], answer)
+                active_model = select_studio_model(ollama_models())
+                if active_model is None:
+                    raise CardsError("Nie ma aktywnego modelu AI. Zainstaluj " + STUDIO_MODEL)
+                result = oral_feedback(card['front'], card['back'], answer, model=active_model)
                 st.session_state['oral_feedback_result'] = {"card_id": card_id, **result}
         except CardsError as exc:
             st.warning(str(exc))
