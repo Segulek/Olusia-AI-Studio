@@ -580,7 +580,7 @@ def test_empty_page_does_not_trigger_infinite_attempts_or_invent_cards():
     Image.new("RGB",(500,500),"white").save(png,"PNG")
     payload={"message":{"content":json.dumps({"structure":"Unreadable notes",
                    "uncertainties":["Please crop"], "cards":[]})}}
-    with patch("cards.urlopen", return_value=BytesIO(json.dumps(payload).encode())) as mocked:
+    with patch("cards.urlopen", side_effect=lambda *_args, **_kwargs: BytesIO(json.dumps(payload).encode())) as mocked:
         result=generate_visual_flashcards([("page.png",png.getvalue())],10,"Standardowy")
     assert mocked.call_count == 2
     assert result.cards == []
