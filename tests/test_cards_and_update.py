@@ -523,7 +523,7 @@ def test_handwritten_page_is_split_into_full_image_and_magnified_halves():
         if payload["messages"][1].get("images"):
             return BytesIO(json.dumps({"message":{"content":
               "- The axial skeleton includes the vertebral column and ribs."},
-              "done_reason":"stop","eval_count":83}}).encode())
+              "done_reason":"stop","eval_count":83}).encode())
         return BytesIO(json.dumps({"message":{"content":json.dumps({"cards":[
             {"front":"Which skeleton includes the vertebral column?",
              "back":"The axial skeleton."}]})}}).encode())
