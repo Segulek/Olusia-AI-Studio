@@ -1,5 +1,26 @@
-# Olusia AI Studio 2.8.2 — better handwritten-note recovery and diagnostics
+# Olusia AI Studio 2.8.3 — fakt po fakcie, bez zmiany modelu
 
+## Dlaczego poprzedni odczyt mógł zawodzić?
+
+Na Windowsie potwierdzono Ollama 0.40.6 i prawidłowo zainstalowany model `qwen3-vl:4b` (3,3 GB). Raport `output_limit=3` oznaczał, że podczas bezpośredniego tworzenia dużych odpowiedzi JSON model dochodził do limitu generowania — nie świadczy o nieczytelnym piśmie.
+
+## Zmiana w 2.8.3
+
+- Zdjęcie jest analizowane przez ten sam Qwen3-VL 4B, **bez JSON w pierwszym kroku**.
+- Model ma krótko wypisać maksymalnie **5 czytelnych faktów w języku angielskim**; następnie ten sam model zamienia je w maksymalnie 5 fiszek po angielsku.
+- Jeśli pełna strona daje mało faktów, aplikacja próbuje dwóch zachodzących na siebie powiększeń. Każde wywołanie obsługuje **tylko jeden obraz**.
+- Gdy model zakończy pracę z `done_reason=length`, już wygenerowane, kompletne zdania nie przepadają.
+- Jeśli nie uda się zbudować fiszek, panel pokaże **czytelne fakty**, które model jednak odczytał. Dzięki temu można je poprawić i ponowić tworzenie z tekstu.
+- Sekcja **AI Diagnostics** zawiera teraz typ zakończenia odpowiedzi, liczbę znaków tekstu, liczbę znaków rozumowania i liczbę tokenów. Raport nie zawiera zdjęć ani tekstu notatek.
+- Nie trzeba ponownie pobierać Ollamy, Qwena, Whispera ani Demucsa. Kompatybilne z macOS i Windows.
+
+**Uwaga:** to rozwiązanie ogranicza złożoność żądania modelu, lecz nie gwarantuje odczytu wszystkich odręcznych notatek. W szczególności nie wolno bez sprawdzenia używać wygenerowanych informacji medycznych — wszystkie propozycje wymagają akceptacji Olusi.
+
+### Instalacja
+
+W działającej wersji 2.x wybierz **Aktualizacje → Sprawdź → Pobierz → Zainstaluj**, a następnie uruchom aplikację ponownie. Na Windows lub macOS wymagany jest nadal tylko `qwen3-vl:4b`. Jeśli Myszka wciąż korzysta z pakietu 1.0, najpierw trzeba przeprowadzić migrację do wersji z aktualizatorem.
+
+---
 If the local vision model generates zero cards, the application now tries a **second method using the SAME qwen3-vl:4b**: it first reads short, clearly visible English medical facts as ordinary text without forcing a JSON flashcard response, then turns those statements into English flashcards. No second model, cloud service or new large download.
 
 - Handles common alternative fields in model results: `flashcards`, `question`, `answer`.
