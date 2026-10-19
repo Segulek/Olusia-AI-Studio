@@ -1,5 +1,18 @@
-# Olusia AI Studio 2.8.3 — fakt po fakcie, bez zmiany modelu
+# 🌷 Olusia AI Studio 2.8.4 — one installed AI model, no blocking
 
+**Fixes the flashcard blocker after uninstalling the old Qwen model.** The app now automatically checks local Ollama models and prefers **`qwen3-vl:4b-instruct`**, but also accepts the older **`qwen3-vl:4b`** if that's the only model installed. The interface never asks Olusia to select between them.
+
+- Works for handwritten photo notes, text flashcards and oral exam feedback.
+- **No re-download needed** if either of those two models is already installed.
+- The installer now downloads `qwen3-vl:4b-instruct` only when explicitly run. It does not delete older models or stored cards.
+- To temporarily unblock Olusia Studio 2.8.3 before updating, use `ollama cp qwen3-vl:4b-instruct qwen3-vl:4b` if Instruct is present (an Ollama model alias; not a new 3.3GB download).
+- For a clean installation: `ollama pull qwen3-vl:4b-instruct`.
+- `ollama list` shows installed models. Never remove the only installed model without checking the app after upgrading.
+- English-language medical flashcards, FSRS and seven-day compressed backups remain unchanged.
+
+**Windows:** Update from inside the app (Updates → Check → Download → Install), restart `2_START_WINDOWS.bat`. Mac users can update the same way. No mandatory downloads, no added AI models.
+
+---
 ## Dlaczego poprzedni odczyt mógł zawodzić?
 
 Na Windowsie potwierdzono Ollama 0.40.6 i prawidłowo zainstalowany model `qwen3-vl:4b` (3,3 GB). Raport `output_limit=3` oznaczał, że podczas bezpośredniego tworzenia dużych odpowiedzi JSON model dochodził do limitu generowania — nie świadczy o nieczytelnym piśmie.
