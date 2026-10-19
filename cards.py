@@ -718,7 +718,7 @@ def _vision_facts_with_diagnostics(
 
     facts: list[str] = []
     for raw in content.splitlines():
-        line = re.sub(r"^\\s*(?:[-*•]|\\d+[.)])\\s*", "", raw).strip()
+        line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", raw).strip()
         # Ignore obvious disclaimers and unfinished model output.
         if (not 20 <= len(line) <= 350 or
                 (reason == "length" and raw == content.splitlines()[-1]
