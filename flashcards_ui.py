@@ -37,13 +37,14 @@ def render_flashcards() -> None:
         )
         picture_mode = bool(uploaded)
         if picture_mode:
-            st.info("🧠 AI first reads up to five short, legible medical facts from the photo, "
-                    "then converts them into English flashcards. "
-                    "Unclear handwriting won't block readable facts.")
-            st.caption("All processing is local. Please verify medical accuracy; one photo produces up to five cards per attempt.")
+            st.info("🧠 AI reads legible medical facts in small batches, "
+                    "then generates English flashcards in batches of up to five. "
+                    "Unreadable words will not block the rest of the page.")
+            st.caption("Choose 3–30 cards. Larger sets take longer; AI may return fewer "
+                       "cards when the notes don't contain enough clear facts.")
         with st.expander("🛠️ AI troubleshooting (if a photo fails)"):
             st.write("If the same photo fails again, check that Ollama is running, "
-                     "qwen3-vl:4b is installed, and your Mac has enough free RAM. "
+                     "qwen3-vl:4b-instruct is installed, and your computer has enough free RAM. "
                      "Run `ollama list` and `ollama --version` in Terminal, "
                      "then restart Ollama if necessary. "
                      "The error message will help distinguish model, RAM and response issues.")
@@ -61,7 +62,9 @@ def render_flashcards() -> None:
         st.markdown("#### 2. Create your cards")
         a, b = st.columns(2)
         with a:
-            count = st.slider("Number of cards", 3, 30, 10)
+            count = st.slider("Number of cards", 3, 30, 10,
+                              help="For photos, AI works in safe five-card batches. "
+                                   "The requested number is a maximum, not a guarantee.")
         with b:
             level = st.selectbox("Difficulty", ["Łatwy", "Standardowy", "Trudniejszy"], index=1,
                                  format_func=lambda value: {"Łatwy": "Easy", "Standardowy": "Standard",
@@ -85,7 +88,8 @@ def render_flashcards() -> None:
             try:
                 if selected_ai is None:
                     raise CardsError("Nie znaleziono lokalnego modelu AI. Uruchom: ollama pull " + STUDIO_MODEL)
-                with st.spinner("Reading up to five clear medical facts, then creating English flashcards…"):
+                with st.spinner("Reading the notes and creating up to "
+                                + str(count) + " English flashcards in safe batches…"):
                     if picture_mode:
                         result = generate_visual_flashcards(
                             [(file.name, file.getvalue()) for file in uploaded],
