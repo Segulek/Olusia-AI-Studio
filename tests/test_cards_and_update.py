@@ -601,7 +601,7 @@ def test_handwritten_notes_photo_size_is_processed_one_image_per_request():
         data=json.loads(req.data);seen.append(data)
         if data["messages"][1].get("images"):
             assert len(data["messages"][1]["images"])==1
-            assert base64.b64decode(data["messages"][1]["images"][0]).startswith(b"\\xff\\xd8")
+            assert base64.b64decode(data["messages"][1]["images"][0]).startswith(b"\xff\xd8")
             return BytesIO(json.dumps({"message":{"content":
                "- The nucleus is enclosed by a double-membrane nuclear envelope."},
                "done_reason":"stop","eval_count":70}).encode())
