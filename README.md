@@ -1,4 +1,25 @@
-# 🌷 Olusia AI Studio 2.7.0 — jeden silnik AI do fiszek
+# 🌷 Olusia AI Studio 2.8.0 — macOS + Windows
+
+**Nowość: instalacja na Windows 10/11 (x64).** Te same fiszki medyczne po angielsku, Learning Plus, lokalny Qwen3-VL 4B, FSRS, kopie danych, Whisper i narzędzia audio. Na Windows program działa w przeglądarce pod prywatnym adresem \`127.0.0.1:8501\`, a nie jako podpisany instalator \`.exe\`.
+
+## 🪟 Windows: uruchomienie
+
+1. Pobierz z [GitHub Releases](https://github.com/Segulek/Olusia-AI-Studio/releases) plik **Olusia_AI_Studio_Windows_v2.8.0.zip** i rozpakuj go.
+2. Uruchom **\`1_INSTALL_WINDOWS.bat\`** (wymaga Python 3.11 x64 i FFmpeg; skrypt wyświetla dokładne instrukcje jeśli ich nie ma).
+3. Do fiszek i analiz zdjęć uruchom **\`3_INSTALL_AI_WINDOWS.bat\`**. Wymagane Ollama dla Windows (oficjalna instalacja) oraz jeden model **\`qwen3-vl:4b\`**, około 3,3 GB. Model nie jest instalowany automatycznie z pakietem.
+4. Uruchom **\`2_START_WINDOWS.bat\`** — otworzy lokalną aplikację. Jeżeli chcesz izolować głos z nagrań, osobno uruchom **\`4_OPTIONAL_DEMUCS_WINDOWS.bat\`**.
+
+Pełna instrukcja znajduje się w pliku \`WINDOWS_README.txt\` w ZIP. Windows może wyświetlić ostrzeżenie SmartScreen dla niepodpisanych plików .bat — pobieraj tylko oficjalne wydania i w razie wątpliwości sprawdź ich treść. Instalator nie zawiera modeli i wymaga internetu przy pierwszym pobieraniu.
+
+**Folder danych:** Windows: \`%LOCALAPPDATA%\Olusia AI Studio\`; macOS: \`~/Library/Application Support/Olusia AI Studio\`. Kopie SQLite ZIP z zakładki \`💾 Kopie danych\` można eksportować i przywracać między platformami. Kopie automatyczne pozostają przez 7 dni; ręczne zachowujemy.
+
+**Windows: uwagi:** HEIC/HEIF najlepiej skonwertować do JPG/PNG przed analizą. Demucs jest opcjonalny i na CPU może działać wolno. Uruchamianie lokalnych modeli może wymagać kilku dodatkowych GB RAM i miejsca na dysku.
+
+## 🍎 macOS i aktualizacje
+
+Użytkownicy macOS mogą pozostać przy dotychczasowym instalatorze .command i aktualizować studio w zakładce \`Aktualizacje\`. Od wersji 2.8.0 automatyczny ZIP z GitHub Releases może uzupełniać także pliki .bat na Windows — nie modyfikuje folderów środowiska AI ani baz SQLite.
+
+---
 
 **Olusia studiuje medycynę po angielsku — wszystkie nowo generowane pytania i odpowiedzi są po angielsku.**
 

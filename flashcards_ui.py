@@ -65,7 +65,7 @@ def render_flashcards() -> None:
                 st.warning("One-time setup needed: install the local model with 5_DOINSTALUJ_FISZKI.command "
                            "or run: ollama pull " + STUDIO_MODEL + ". No other model is required.")
             else:
-                st.caption("🟢 Olusia AI is ready on this MacBook.")
+                st.caption("🟢 Olusia AI is ready on this computer.")
         except CardsError as exc:
             st.info(str(exc))
 
@@ -128,7 +128,7 @@ def render_flashcards() -> None:
                         front = st.text_input("Przód (pytanie)", value=card.front, key=f"draft_front_{index}")
                         back = st.text_area("Tył (odpowiedź)", value=card.back, height=82, key=f"draft_back_{index}")
                     edits.append(Flashcard(front=front, back=back))
-                save = st.form_submit_button("💾 Zapisz zestaw na MacBooku", type="primary")
+                save = st.form_submit_button("💾 Zapisz zestaw na komputerze", type="primary")
             review_ok = True
             if st.session_state.get("draft_needs_review"):
                 review_ok = st.checkbox(
@@ -374,7 +374,7 @@ def render_oral_exam(decks: list[dict]) -> None:
                     path.write_bytes(recorded.getvalue())
                     if path.stat().st_size > 12 * 1024 * 1024:
                         raise ValueError("Odpowiedź jest za duża (limit 12 MB). Nagraj krótszy fragment.")
-                    segments, _ = _oral_whisper().transcribe(str(path), language="pl", beam_size=5, vad_filter=True)
+                    segments, _ = _oral_whisper().transcribe(str(path), language="en", beam_size=5, vad_filter=True)
                     st.session_state[answer_key] = " ".join(piece.text.strip() for piece in segments).strip()
                 st.session_state.pop("oral_feedback_result", None)
                 st.rerun()

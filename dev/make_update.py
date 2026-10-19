@@ -19,8 +19,16 @@ def create(target: Path):
     declared_version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     if declared_version != VERSION:
         raise ValueError(f"Wersja z pliku VERSION ({declared_version}) różni się od updater.py ({VERSION})")
+    # Preserve compatibility with macOS 2.7 and older updaters: their strict
+    # allowlist rejects *new* Windows .bat files. Windows users initially get
+    # these files from the separate full Windows distribution archive.
+    windows_only = {"1_INSTALL_WINDOWS.bat", "2_START_WINDOWS.bat",
+                    "3_INSTALL_AI_WINDOWS.bat", "4_OPTIONAL_DEMUCS_WINDOWS.bat",
+                    "WINDOWS_README.txt"}
     files = {name: hashlib.sha256((ROOT/name).read_bytes()).hexdigest()
-             for name in sorted(ALLOWED_FILES) if name != "0_UAKTUALIZUJ_STARA_WERSJE.command" and (ROOT/name).is_file()}
+             for name in sorted(ALLOWED_FILES)
+             if name != "0_UAKTUALIZUJ_STARA_WERSJE.command"
+             and name not in windows_only and (ROOT/name).is_file()}
     manifest = {"app_id": "olusia-ai-studio", "version": VERSION, "files": files}
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as out:
         out.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))

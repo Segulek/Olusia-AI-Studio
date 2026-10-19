@@ -18,9 +18,11 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 import zipfile
 
-SETTINGS_PATH = Path.home() / "Library" / "Application Support" / "Olusia AI Studio" / "updates.json"
+DATA_DIR = (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "Olusia AI Studio"
+            if os.name == "nt" else Path.home() / "Library" / "Application Support" / "Olusia AI Studio")
+SETTINGS_PATH = DATA_DIR / "updates.json"
 
-VERSION = "2.7.0"
+VERSION = "2.8.0"
 DEFAULT_REPO = "Segulek/Olusia-AI-Studio"
 ALLOWED_FILES = {
     "app.py", "processor.py", "cards.py", "flashcards_ui.py", "ocr_local.py",
@@ -29,7 +31,9 @@ ALLOWED_FILES = {
     "3_DIAGNOSTYKA.command", "4_AKTUALIZUJ.command",
     "5_DOINSTALUJ_FISZKI.command", "6_UTWORZ_APLIKACJE.command",
     "0_UAKTUALIZUJ_STARA_WERSJE.command", ".streamlit/config.toml",
-    "VERSION",
+    "VERSION", "1_INSTALL_WINDOWS.bat", "2_START_WINDOWS.bat",
+    "3_INSTALL_AI_WINDOWS.bat", "4_OPTIONAL_DEMUCS_WINDOWS.bat",
+    "WINDOWS_README.txt",
 }
 
 
@@ -237,7 +241,6 @@ from datetime import datetime, timezone, timedelta
 import sqlite3
 from urllib.parse import quote
 
-DATA_DIR = Path.home() / "Library" / "Application Support" / "Olusia AI Studio"
 DATABASE_NAMES = ("fiszki.sqlite3", "nagrania.sqlite3")
 MAX_DATABASE_BYTES = 64 * 1024 * 1024
 MAX_BACKUP_BYTES = 96 * 1024 * 1024
@@ -269,7 +272,7 @@ def _check_file(path: Path) -> None:
 
 def _open_database(path: Path, readonly: bool = False) -> sqlite3.Connection:
     if readonly:
-        encoded = quote(str(path.resolve()), safe="/")
+        encoded = quote(path.resolve().as_posix(), safe="/:")
         return sqlite3.connect(f"file:{encoded}?mode=ro", uri=True, timeout=8)
     return sqlite3.connect(str(path), timeout=8)
 
@@ -318,8 +321,11 @@ def _snapshot_database(source: Path, target: Path, name: str) -> None:
     # Repack the *snapshot*, never the original database. VACUUM removes
     # unused SQLite pages, making the ZIP smaller after deleting cards.
     try:
-        with sqlite3.connect(target, timeout=8) as snapshot:
+        snapshot = sqlite3.connect(target, timeout=8)
+        try:
             snapshot.execute("VACUUM")
+        finally:
+            snapshot.close()
     except sqlite3.Error as exc:
         raise BackupError("Nie można skompaktować kopii danych.") from exc
     _check_database(target, name)

@@ -5,6 +5,7 @@ Only a local loopback Streamlit UI invokes these helpers.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 import math
 import os
 import sqlite3
@@ -24,6 +25,7 @@ def _run(cmd: list[str], *, timeout: int = 900) -> subprocess.CompletedProcess[s
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8", errors="replace",
             timeout=timeout,
         )
     except FileNotFoundError as exc:
@@ -78,7 +80,7 @@ def make_wav(source: Path, destination: Path, *, sample_rate: int = 16000, chann
 def isolate_vocals(source: Path, job_folder: Path, stem_python: Path) -> Path:
     """Use a *separate virtualenv* for older Demucs and torchaudio dependencies."""
     if not stem_python.is_file():
-        raise ProcessingError("Nie zainstalowano modułu izolacji. Uruchom ponownie plik 1_ZAINSTALUJ.command.")
+        raise ProcessingError("Nie zainstalowano modułu izolacji. Doinstaluj moduł izolacji głosu (macOS: 1_ZAINSTALUJ.command, Windows: 4_OPTIONAL_DEMUCS_WINDOWS.bat).")
     prepared = make_wav(source, job_folder / "do_separacji.wav", sample_rate=44100, channels=2)
     stems_folder = job_folder / "separacja"
     _run([
@@ -122,7 +124,8 @@ def transcript_files(segments: Iterable[tuple[float, float, str]]) -> tuple[str,
 
 
 # Local recording bookmarks: only time markers and notes, never audio files.
-BOOKMARK_DB = Path.home() / "Library" / "Application Support" / "Olusia AI Studio" / "nagrania.sqlite3"
+BOOKMARK_DB = (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "Olusia AI Studio"
+               if os.name == "nt" else Path.home() / "Library" / "Application Support" / "Olusia AI Studio") / "nagrania.sqlite3"
 
 
 def filter_segments(segments, search: str, maximum: int = 30) -> list[tuple[float, float, str]]:
@@ -150,6 +153,7 @@ def clip_audio(source: Path, destination: Path, start: float, end: float) -> Pat
     return destination
 
 
+@contextmanager
 def _bookmarks(db_path: Path):
     if db_path.is_symlink():
         raise ProcessingError("Niebezpieczna ścieżka bazy zakładek.")
@@ -157,16 +161,20 @@ def _bookmarks(db_path: Path):
     if db_path == BOOKMARK_DB:
         db_path.parent.chmod(0o700)
     connection = sqlite3.connect(db_path, timeout=5)
-    db_path.chmod(0o600)
-    connection.execute("""CREATE TABLE IF NOT EXISTS recording_bookmarks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        recording_sha TEXT NOT NULL,
-        title TEXT NOT NULL,
-        start REAL NOT NULL,
-        excerpt TEXT NOT NULL,
-        note TEXT NOT NULL DEFAULT ''
-    )""")
-    return connection
+    try:
+        db_path.chmod(0o600)
+        connection.execute("""CREATE TABLE IF NOT EXISTS recording_bookmarks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recording_sha TEXT NOT NULL,
+            title TEXT NOT NULL,
+            start REAL NOT NULL,
+            excerpt TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT ''
+        )""")
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def save_bookmark(recording_sha: str, title: str, start: float, excerpt: str,

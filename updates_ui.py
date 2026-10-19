@@ -15,7 +15,7 @@ from updater import (
 def render_updates(root: Path) -> None:
     st.markdown("### 🔄 Aktualizacje aplikacji")
     st.markdown(f"Obecna wersja: **v{VERSION}**")
-    st.write("Nowe wersje możesz instalować za darmo. Baza fiszek i pobrane modele AI zostają na Macu.")
+    st.write("Nowe wersje możesz instalować za darmo. Baza fiszek i pobrane modele AI zostają na komputerze.")
 
     st.markdown("#### Sprawdź aktualizacje przez GitHub")
     try:
@@ -31,7 +31,7 @@ def render_updates(root: Path) -> None:
             set_repo(repo)
             st.session_state.pop("olusia_release", None)
             st.session_state.pop("olusia_downloaded_zip", None)
-            st.success("Zapisano źródło aktualizacji na MacBooku. Pozostanie zapisane po kolejnych wersjach.")
+            st.success("Zapisano źródło aktualizacji na komputerze. Pozostanie zapisane po kolejnych wersjach.")
         except UpdateError as exc:
             st.error(str(exc))
 
@@ -106,7 +106,7 @@ def render_backups() -> None:
                 st.info("Nie ma jeszcze zapisanych fiszek ani zakładek. Dodaj pierwszy zestaw.")
             else:
                 st.session_state["olusia_last_backup_name"] = path.name
-                st.success("Zapisano kopię danych na MacBooku. Możesz pobrać ją niżej.")
+                st.success("Zapisano kopię danych na komputerze. Możesz pobrać ją niżej.")
         except (BackupError, OSError) as exc:
             st.error(f"Nie udało się zrobić kopii: {exc}")
 

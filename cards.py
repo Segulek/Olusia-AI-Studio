@@ -6,6 +6,7 @@ users can edit every card before saving.
 from __future__ import annotations
 
 import csv
+from contextlib import contextmanager
 import base64
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,7 +19,8 @@ import sqlite3
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-APP_DIR = Path.home() / "Library" / "Application Support" / "Olusia AI Studio"
+APP_DIR = (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "Olusia AI Studio"
+           if os.name == "nt" else Path.home() / "Library" / "Application Support" / "Olusia AI Studio")
 DEFAULT_DB = APP_DIR / "fiszki.sqlite3"
 LOCAL_OLLAMA = "http://127.0.0.1:11434"
 STUDIO_MODEL = "qwen3-vl:4b"
@@ -35,17 +37,20 @@ class Flashcard:
     back: str
 
 
+@contextmanager
 def _database(db_path: Path):
+    """Ensure SQLite handles close deterministically (required on Windows)."""
     if db_path.is_symlink():
         raise CardsError("Niebezpieczna lokalizacja bazy fiszek.")
     db_path.parent.mkdir(parents=True, exist_ok=True)
     if db_path == DEFAULT_DB:
         db_path.parent.chmod(0o700)
     con = sqlite3.connect(str(db_path), timeout=5)
-    db_path.chmod(0o600)
-    con.execute("PRAGMA foreign_keys=ON")
-    con.execute("PRAGMA busy_timeout=5000")
-    con.executescript("""
+    try:
+        db_path.chmod(0o600)
+        con.execute("PRAGMA foreign_keys=ON")
+        con.execute("PRAGMA busy_timeout=5000")
+        con.executescript("""
         CREATE TABLE IF NOT EXISTS decks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -59,8 +64,11 @@ def _database(db_path: Path):
             known INTEGER NOT NULL DEFAULT 0,
             CHECK (known IN (0, 1))
         );
-    """)
-    return con
+        """)
+        with con:
+            yield con
+    finally:
+        con.close()
 
 
 def save_deck(name: str, cards: list[Flashcard], db_path: Path = DEFAULT_DB) -> int:
@@ -239,27 +247,28 @@ MEDICAL_SUBJECTS = (
 RATING_LABELS = {1: "Nie pamiętam", 2: "Trudne", 3: "Dobrze", 4: "Łatwe"}
 
 
+@contextmanager
 def _learning_database(db_path: Path = DEFAULT_DB):
-    con = _database(db_path)
-    con.executescript("""
-        CREATE TABLE IF NOT EXISTS learning_subjects (
-            deck_id INTEGER PRIMARY KEY REFERENCES decks(id) ON DELETE CASCADE,
-            subject TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS learning_schedule (
-            card_id INTEGER PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
-            card_json TEXT NOT NULL, due_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS learning_reviews (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            card_id INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-            rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 4),
-            reviewed_at TEXT NOT NULL, next_due_at TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_learning_reviews_time ON learning_reviews(reviewed_at);
-        CREATE INDEX IF NOT EXISTS idx_learning_schedule_due ON learning_schedule(due_at);
-    """)
-    return con
+    with _database(db_path) as con:
+        con.executescript("""
+                CREATE TABLE IF NOT EXISTS learning_subjects (
+                    deck_id INTEGER PRIMARY KEY REFERENCES decks(id) ON DELETE CASCADE,
+                    subject TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS learning_schedule (
+                    card_id INTEGER PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
+                    card_json TEXT NOT NULL, due_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS learning_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    card_id INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+                    rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 4),
+                    reviewed_at TEXT NOT NULL, next_due_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_learning_reviews_time ON learning_reviews(reviewed_at);
+                CREATE INDEX IF NOT EXISTS idx_learning_schedule_due ON learning_schedule(due_at);
+            """)
+        yield con
 
 
 def assign_medical_subject(deck_id: int, subject: str, db_path: Path = DEFAULT_DB) -> None:
