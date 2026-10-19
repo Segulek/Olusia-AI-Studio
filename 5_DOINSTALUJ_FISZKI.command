@@ -23,14 +23,14 @@ if ! command -v brew >/dev/null 2>&1; then
   exit 1
 fi
 printf '📚 Instaluję darmowe, lokalne fiszki AI (OCR i model językowy)...\n'
-printf 'Potrzeba internetu i około 2–4 GB miejsca.\n\n'
+printf 'Potrzeba internetu i około 3,3 GB na jeden silnik AI (+ biblioteki).\n\n'
 
 if [ ! -x .venv-core/bin/python ]; then
   echo "Najpierw uruchom 1_ZAINSTALUJ.command."
   exit 1
 fi
 printf "Instaluję FSRS — lokalny algorytm adaptacyjnych powtórek...\n"
-.venv-core/bin/python -m pip install "fsrs>=6.0,<7"
+.venv-core/bin/python -m pip install "fsrs>=6.0,<7" "Pillow>=10,<13"
 
 if ! command -v tesseract >/dev/null 2>&1; then
   brew install tesseract
@@ -58,30 +58,20 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
-printf '\nWybierz model do fiszek:\n'
-printf '  1 — dokładniejszy (qwen2.5:3b, ok. 1,9 GB) [domyślny]\n'
-printf '  2 — lżejszy (qwen2.5:1.5b, ok. 1 GB)\n'
-read -r -p 'Wybór [1/2]: ' CHOICE || true
-if [ "${CHOICE:-1}" = "2" ]; then
-  MODEL="qwen2.5:1.5b"
-else
-  MODEL="qwen2.5:3b"
+printf '\n🧠 Jeden silnik AI do tekstu, zdjęć i egzaminu ustnego.\n'
+printf 'Pobieram Qwen3-VL 4B (ok. 3,3 GB). Nie instaluje się już osobnych modeli tekstowych.\n'
+printf 'Wymagana jest Ollama 0.12.7 lub nowsza.\n'
+
+if ! .venv-core/bin/python -c 'import re, subprocess; s=subprocess.check_output(["ollama","--version"],text=True); m=re.search(r"(\d+)\.(\d+)\.(\d+)",s); assert m and tuple(map(int,m.groups())) >= (0,12,7)' >/dev/null 2>&1; then
+  echo "Aktualizuję Ollamę do wersji obsługującej rozpoznawanie zdjęć..."
+  brew upgrade ollama || { echo "Nie udało się zaktualizować Ollamy. Uruchom: brew upgrade ollama"; exit 1; }
+  brew services restart ollama || true
 fi
-echo "Pobieram lokalny model $MODEL — tylko przy pierwszym uruchomieniu..."
-ollama pull "$MODEL"
-echo
-echo "🧠 Dodatkowy tryb rozumienia zdjęć notatek (opcjonalny)"
-echo "  Model qwen3-vl:2b zajmuje około 1,9 GB i wymaga Ollama 0.12.7+."
-read -r -p "Czy pobrać model Vision AI? [t/N]: " VISION_CHOICE || true
-if [ "${VISION_CHOICE:-n}" = "t" ] || [ "${VISION_CHOICE:-n}" = "T" ] || [ "${VISION_CHOICE:-n}" = "y" ] || [ "${VISION_CHOICE:-n}" = "Y" ]; then
-  echo "Pobieram osobny lokalny model obrazu..."
-  ollama pull qwen3-vl:2b
-else
-  echo "Pominięto model obrazu — możesz pobrać go później: ollama pull qwen3-vl:2b"
-fi
+ollama pull qwen3-vl:4b
+echo "✅ Jeden lokalny silnik do nauki jest gotowy."
 if ! command -v tesseract >/dev/null 2>&1; then
   echo "Nie znaleziono Tesseract po instalacji."
   exit 1
 fi
-printf '\nZainstalowano model: %s\n' "$MODEL"
+printf '\nZainstalowano model: qwen3-vl:4b\n'
 printf 'Możesz korzystać offline po pobraniu modelu, bez płacenia za fiszki.\n'
