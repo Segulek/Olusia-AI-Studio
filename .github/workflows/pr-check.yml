@@ -23,4 +23,23 @@ jobs:
       - name: Sprawdź składnię i testy
         run: |
           python -m compileall -q app.py cards.py flashcards_ui.py updater.py
-          python -m pytest -q tests/test_cards_and_update.py tests/test_processor.py
+          python -m pytest -q tests/test_cards_and_update.py tests/test_processor.py tests/test_windows.py
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+      - name: Install and import Windows core dependencies
+        shell: pwsh
+        run: |
+          python -m pip install -q pytest -r requirements-core.txt
+          python -c "import streamlit, faster_whisper, fsrs, PIL; print('Core libraries available on Windows')"
+      - name: Test cross-platform data, update and Windows bundle
+        shell: pwsh
+        run: |
+          python -m compileall -q app.py cards.py processor.py flashcards_ui.py updater.py
+          python -m pytest -q tests/test_cards_and_update.py tests/test_windows.py
