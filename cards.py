@@ -853,7 +853,7 @@ def generate_visual_flashcards(
         if exc.code in (400, 404):
             raise CardsError(
                 "Ollama nie może uruchomić modelu. Sprawdź: ollama list. "
-                "Zainstalowany musi być qwen3-vl:4b."
+                "Zainstaluj qwen3-vl:4b-instruct albo użyj już zainstalowanego qwen3-vl:4b."
             ) from exc
         if exc.code in (500, 502, 503):
             raise CardsError(
