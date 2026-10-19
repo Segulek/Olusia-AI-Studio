@@ -23,7 +23,8 @@ from processor import (
 )
 
 ROOT = Path(__file__).resolve().parent
-STEM_PYTHON = ROOT / ".venv-isolation" / "bin" / "python"
+STEM_PYTHON = (ROOT / ".venv-isolation" / "Scripts" / "python.exe"
+               if os.name == "nt" else ROOT / ".venv-isolation" / "bin" / "python")
 SUPPORTED = ["mp4", "mov", "m4v", "mkv", "webm", "avi", "mp3", "wav", "m4a", "aac", "flac", "ogg", "aiff"]
 
 st.set_page_config(
@@ -87,7 +88,7 @@ def render_home() -> None:
     except (BackupError, OSError) as exc:
         st.warning(f"Nie udało się utworzyć dzisiejszej kopii danych: {exc}")
     st.markdown("### Cześć, Myszko! ♡")
-    st.write("Wybierz, od czego chcesz zacząć. Wszystkie materiały przetwarzamy na Twoim MacBooku.")
+    st.write("Wybierz, od czego chcesz zacząć. Wszystkie materiały przetwarzamy lokalnie na Twoim komputerze.")
     st.markdown("""
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;margin:20px 0">
       <div class="glass-card"><div>🎧 <b>Nagrania</b></div>
@@ -107,7 +108,7 @@ def render_home() -> None:
     except (OSError, ValueError, RuntimeError):
         st.caption("Statystyki pojawią się po utworzeniu pierwszego zestawu.")
     st.info("🌿 **Wskazówka:** przed egzaminem zacznij od zakładki „Learning Plus”. Jeśli dopiero zbierasz materiały, wybierz „Audio” lub „Fiszki”.")
-    st.caption("🔒 Działa lokalnie na tym MacBooku • bez konta • bez abonamentu za przetwarzanie")
+    st.caption("🔒 Działa lokalnie na tym komputerze • bez konta • bez abonamentu za przetwarzanie")
 
 
 def remove_old_job() -> None:
@@ -140,13 +141,13 @@ with st.sidebar:
     st.markdown("**Co robią moduły?**")
     st.markdown("- MP3: wyciąga całą ścieżkę audio z filmu.\n- Izoluj głos: oddziela wokal/głos od podkładu.\n- Transkrypcja: rozpoznaje mowę i przygotowuje TXT i SRT.")
     st.caption("Demucs nie jest narzędziem do idealnego usuwania każdego szumu lub rozdzielania wielu mówiących osób.")
-    st.markdown("- Fiszki AI: zdjęcie → OCR → pytania i odpowiedzi (Ollama).")
-    st.caption(f"Wersja v{VERSION} • tylko ten Mac • bez API i abonamentu.")
+    st.markdown("- Fiszki AI: zdjęcie lub tekst → pytania i odpowiedzi (jeden model Ollama).")
+    st.caption(f"Wersja v{VERSION} • tylko ten komputer • bez API i abonamentu.")
 
 def render_audio() -> None:
     st.markdown("#### 1. Dodaj film lub nagranie")
     uploaded = st.file_uploader("Przeciągnij plik lub kliknij, aby wybrać", type=SUPPORTED,
-                                help="MP4, MOV, MP3, WAV, M4A i inne popularne formaty. Limit: 400 MB.")
+                                help="MP4, MOV, MP3, WAV, M4A i inne popularne formaty. Limit: 250 MB.")
 
     if uploaded is None:
         st.info("👆 Wybierz plik, a poniżej pojawią się trzy narzędzia.")
