@@ -321,8 +321,11 @@ def _snapshot_database(source: Path, target: Path, name: str) -> None:
     # Repack the *snapshot*, never the original database. VACUUM removes
     # unused SQLite pages, making the ZIP smaller after deleting cards.
     try:
-        with sqlite3.connect(target, timeout=8) as snapshot:
+        snapshot = sqlite3.connect(target, timeout=8)
+        try:
             snapshot.execute("VACUUM")
+        finally:
+            snapshot.close()
     except sqlite3.Error as exc:
         raise BackupError("Nie można skompaktować kopii danych.") from exc
     _check_database(target, name)
