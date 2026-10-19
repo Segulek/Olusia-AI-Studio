@@ -718,9 +718,11 @@ def _vision_facts_with_diagnostics(
 
     facts: list[str] = []
     for raw in content.splitlines():
-        line = raw.strip().lstrip("-*• \t").strip()
-        # Ignore meta-commentary and incomplete/unusually long lines.
-        if (not 20 <= len(line) <= 350 or not line[-1] in ".;:" or
+        line = re.sub(r"^\\s*(?:[-*•]|\\d+[.)])\\s*", "", raw).strip()
+        # Ignore obvious disclaimers and unfinished model output.
+        if (not 20 <= len(line) <= 350 or
+                (reason == "length" and raw == content.splitlines()[-1]
+                 and not line.endswith((".", ";", ":"))) or
                 line.lower().startswith(("sorry", "i cannot", "i can't",
                                          "the image", "here are", "no legible"))):
             continue
