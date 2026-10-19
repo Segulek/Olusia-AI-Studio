@@ -23,8 +23,9 @@ APP_DIR = (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"
            if os.name == "nt" else Path.home() / "Library" / "Application Support" / "Olusia AI Studio")
 DEFAULT_DB = APP_DIR / "fiszki.sqlite3"
 LOCAL_OLLAMA = "http://127.0.0.1:11434"
-STUDIO_MODEL = "qwen3-vl:4b"
-SUPPORTED_MODELS = (STUDIO_MODEL,)
+STUDIO_MODEL = "qwen3-vl:4b-instruct"
+LEGACY_STUDIO_MODEL = "qwen3-vl:4b"
+SUPPORTED_MODELS = (STUDIO_MODEL, LEGACY_STUDIO_MODEL)
 
 
 class CardsError(RuntimeError):
@@ -138,6 +139,20 @@ def cards_as_csv(cards: list[dict]) -> bytes:
             return value
         writer.writerow([safe_cell(c["front"]), safe_cell(c["back"])])
     return ("\ufeff" + out.getvalue()).encode("utf-8")
+
+
+
+def select_studio_model(installed: list[str]) -> str | None:
+    """Choose one installed model automatically, preferring non-thinking Instruct.
+
+    No download, renaming, or extra model installation is required.
+    Returns None if neither supported model is present.
+    """
+    names = set(installed)
+    for candidate in SUPPORTED_MODELS:
+        if candidate in names:
+            return candidate
+    return None
 
 
 def ollama_models() -> list[str]:
@@ -450,7 +465,7 @@ def oral_feedback(question: str, reference: str, answer: str, model: str = STUDI
 
 # English-language study mode. The app UI can remain Polish for convenience,
 # but newly generated flashcard questions and answers are always in English.
-VISION_MODELS = (STUDIO_MODEL,)
+VISION_MODELS = SUPPORTED_MODELS
 _POLISH_LANGUAGE = re.compile(
     r"[ąćęłńóśźż]|\b(?:jakie|jaka|jaki|który|która|które|wymień|wyjaśnij|"
     r"odpowiedź|pytanie|kość|kości|szkielet|mięsień|mięśnie|czaszka|żebra|"
@@ -751,8 +766,8 @@ def generate_visual_flashcards(
     Prefer short facts before structured card generation because some Windows
     Qwen3-VL installations exhaust the JSON generation budget on photos.
     """
-    if model != STUDIO_MODEL:
-        raise CardsError("Aplikacja korzysta z jednego silnika AI.")
+    if model not in SUPPORTED_MODELS:
+        raise CardsError("Wybierz jeden z obsługiwanych lokalnych silników Qwen3-VL.")
     if not 3 <= count <= 30 or difficulty not in ("Łatwy", "Standardowy", "Trudniejszy"):
         raise CardsError("Nieprawidłowe ustawienia fiszek.")
     if not 1 <= len(images) <= 2:
@@ -838,7 +853,7 @@ def generate_visual_flashcards(
         if exc.code in (400, 404):
             raise CardsError(
                 "Ollama nie może uruchomić modelu. Sprawdź: ollama list. "
-                "Zainstalowany musi być qwen3-vl:4b."
+                "Zainstaluj qwen3-vl:4b-instruct albo użyj już zainstalowanego qwen3-vl:4b."
             ) from exc
         if exc.code in (500, 502, 503):
             raise CardsError(

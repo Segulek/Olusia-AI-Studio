@@ -62,7 +62,7 @@ if ! .venv-core/bin/python -c 'import re, subprocess; s=subprocess.check_output(
   brew upgrade ollama || { echo "Nie udało się zaktualizować Ollamy. Uruchom: brew upgrade ollama"; exit 1; }
   brew services restart ollama || true
 fi
-ollama pull qwen3-vl:4b
+ollama pull qwen3-vl:4b-instruct
 echo "✅ Jeden lokalny silnik do nauki jest gotowy."
-printf '\nZainstalowano model: qwen3-vl:4b\n'
+printf '\nZainstalowano model: qwen3-vl:4b-instruct\n'
 printf 'Możesz korzystać offline po pobraniu modelu, bez płacenia za fiszki.\n'

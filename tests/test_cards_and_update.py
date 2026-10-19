@@ -451,7 +451,7 @@ def test_visual_notes_examine_actual_image_and_return_english_flashcards():
         payload=json.loads(req.data); calls.append(payload)
         if len(calls)==1:
             assert payload["messages"][1]["images"]
-            assert payload["model"]=="qwen3-vl:4b"
+            assert payload["model"]=="qwen3-vl:4b-instruct"
             assert "format" not in payload
             return BytesIO(json.dumps({"message":{"content":
                 "- The axial skeleton contains the skull, vertebral column, ribs and sternum.\n"
@@ -499,8 +499,8 @@ def test_text_generator_prompt_explicit_english_only():
 
 def test_single_model_handles_text_images_and_oral_answers():
     from cards import STUDIO_MODEL, SUPPORTED_MODELS, VISION_MODELS, oral_feedback
-    assert STUDIO_MODEL == "qwen3-vl:4b"
-    assert SUPPORTED_MODELS == VISION_MODELS == (STUDIO_MODEL,)
+    assert STUDIO_MODEL == "qwen3-vl:4b-instruct"
+    assert SUPPORTED_MODELS == VISION_MODELS == (STUDIO_MODEL, "qwen3-vl:4b")
     text_response = {"message": {"content": json.dumps({"cards": [
         {"front":"What forms the axial skeleton?", "back":"Skull, vertebral column, ribs and sternum."}]})}}
     with patch("cards.urlopen", return_value=BytesIO(json.dumps(text_response).encode())) as call:
@@ -753,3 +753,26 @@ def test_vision_text_generation_failure_shows_readable_facts():
     assert result.cards==[]
     assert "nucleus controls" in result.structure
     assert any("Text-to-cards: failed" in x for x in result.diagnostics)
+
+
+
+def test_studio_model_selection_prefers_installed_instruct_without_user_choice():
+    from cards import (select_studio_model, STUDIO_MODEL, LEGACY_STUDIO_MODEL,
+                       generate_flashcards, oral_feedback, SUPPORTED_MODELS)
+    assert select_studio_model([STUDIO_MODEL]) == STUDIO_MODEL
+    assert select_studio_model([LEGACY_STUDIO_MODEL]) == LEGACY_STUDIO_MODEL
+    assert select_studio_model([LEGACY_STUDIO_MODEL, STUDIO_MODEL]) == STUDIO_MODEL
+    assert select_studio_model(["some-other-model:latest"]) is None
+    assert SUPPORTED_MODELS == (STUDIO_MODEL, LEGACY_STUDIO_MODEL)
+
+    fake_cards = {"message": {"content": json.dumps({"cards":[
+        {"front":"What is chromatin?", "back":"DNA associated with proteins."}
+    ]})}}
+    with patch("cards.urlopen", return_value=BytesIO(json.dumps(fake_cards).encode())) as call:
+        generate_flashcards("Chromatin comprises DNA and proteins inside the eukaryotic nucleus.",
+                            3, "Standardowy", model=LEGACY_STUDIO_MODEL)
+        assert json.loads(call.call_args.args[0].data)["model"] == LEGACY_STUDIO_MODEL
+    with patch("cards.urlopen", return_value=BytesIO(json.dumps(fake_cards).encode())) as call:
+        generate_flashcards("Chromatin comprises DNA and proteins inside the eukaryotic nucleus.",
+                            3, "Standardowy", model=STUDIO_MODEL)
+        assert json.loads(call.call_args.args[0].data)["model"] == STUDIO_MODEL
