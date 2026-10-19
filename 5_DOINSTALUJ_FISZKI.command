@@ -22,7 +22,7 @@ if ! command -v brew >/dev/null 2>&1; then
   echo "Najpierw zainstaluj Homebrew z https://brew.sh"
   exit 1
 fi
-printf '📚 Instaluję darmowe, lokalne fiszki AI (OCR i model językowy)...\n'
+printf '📚 Instaluję jeden lokalny silnik do fiszek AI i zdjęć...\n'
 printf 'Potrzeba internetu i około 3,3 GB na jeden silnik AI (+ biblioteki).\n\n'
 
 if [ ! -x .venv-core/bin/python ]; then
@@ -32,12 +32,7 @@ fi
 printf "Instaluję FSRS — lokalny algorytm adaptacyjnych powtórek...\n"
 .venv-core/bin/python -m pip install "fsrs>=6.0,<7" "Pillow>=10,<13"
 
-if ! command -v tesseract >/dev/null 2>&1; then
-  brew install tesseract
-fi
-if ! brew list --formula tesseract-lang >/dev/null 2>&1; then
-  brew install tesseract-lang
-fi
+# OCR is optional and deliberately not installed by the single-model setup.
 if ! command -v ollama >/dev/null 2>&1; then
   brew install ollama
 fi
@@ -69,9 +64,5 @@ if ! .venv-core/bin/python -c 'import re, subprocess; s=subprocess.check_output(
 fi
 ollama pull qwen3-vl:4b
 echo "✅ Jeden lokalny silnik do nauki jest gotowy."
-if ! command -v tesseract >/dev/null 2>&1; then
-  echo "Nie znaleziono Tesseract po instalacji."
-  exit 1
-fi
 printf '\nZainstalowano model: qwen3-vl:4b\n'
 printf 'Możesz korzystać offline po pobraniu modelu, bez płacenia za fiszki.\n'
