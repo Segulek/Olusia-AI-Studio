@@ -37,9 +37,10 @@ def render_flashcards() -> None:
         )
         picture_mode = bool(uploaded)
         if picture_mode:
-            st.info("🧠 AI will analyze headings, relationships and zoomed sections one at a time. "
-                    "Illegible words will not block cards from the rest of the page.")
-            st.caption("Photographs are processed by Ollama on this Mac. The model may still make mistakes.")
+            st.info("🧠 AI first reads up to five short, legible medical facts from the photo, "
+                    "then converts them into English flashcards. "
+                    "Unclear handwriting won't block readable facts.")
+            st.caption("All processing is local. Please verify medical accuracy; one photo produces up to five cards per attempt.")
         with st.expander("🛠️ AI troubleshooting (if a photo fails)"):
             st.write("If the same photo fails again, check that Ollama is running, "
                      "qwen3-vl:4b is installed, and your Mac has enough free RAM. "
@@ -81,7 +82,7 @@ def render_flashcards() -> None:
         if st.button("✨ Create English flashcards", type="primary",
                      disabled=invalid_photos or not (picture_mode or valid_text)):
             try:
-                with st.spinner("Reading what is clear, analyzing arrows and diagrams, preparing English cards…"):
+                with st.spinner("Reading up to five clear medical facts, then creating English flashcards…"):
                     if picture_mode:
                         result = generate_visual_flashcards(
                             [(file.name, file.getvalue()) for file in uploaded],
@@ -110,10 +111,9 @@ def render_flashcards() -> None:
                     st.success(f"Prepared {len(cards)} English flashcards. Review them before saving.")
                 else:
                     st.error(
-                        "The local AI returned no usable flashcards. This does NOT mean "
-                        "your handwriting is unreadable. See AI Diagnostics below: "
-                        "the model may have returned empty JSON or no text. "
-                        "You can retry, restart Ollama or ask for help using the diagnostics."
+                        "No flashcards were created. This does NOT mean your notes "
+                        "are unreadable. The local model may be exhausting its output "
+                        "limit or returning no text. Open AI Diagnostics below."
                     )
             except CardsError as exc:
                 st.error(str(exc))
