@@ -10,132 +10,110 @@ import streamlit as st
 from cards import (
     CardsError, Flashcard, cards_as_csv, delete_deck, generate_flashcards,
     get_cards, list_decks, ollama_models, save_deck, set_known,
-    generate_visual_flashcards, VISION_MODELS, _require_english_cards,
+    generate_visual_flashcards, STUDIO_MODEL, _require_english_cards,
 )
 from ocr_local import OCRError, recognize_image
 
 
 def render_flashcards() -> None:
     st.markdown("### 📚 Fiszki AI")
-    st.write("Fiszki do nauki medycyny po angielsku. AI może analizować **cały układ strony**: diagramy, strzałki, podpisy i zależności — nie tylko pojedyncze litery.")
-    st.caption("🇬🇧 All newly generated flashcard questions and answers are in English.")
-    create_tab, browse_tab = st.tabs(["✨ Twórz fiszki", "🗂️ Moje zestawy i nauka"])
+    st.write("Dodaj zdjęcie odręcznych notatek albo wklej tekst. Jeden lokalny silnik AI przygotuje fiszki po angielsku.")
+    st.caption("🇬🇧 English medical flashcards • One AI model • No manual model selection")
+    create_tab, browse_tab = st.tabs(["✨ Create flashcards", "🗂️ Moje zestawy i nauka"])
 
     with create_tab:
-        st.markdown("#### 1. Jak chcesz przygotować materiał?")
-        mode = st.radio(
-            "Sposób tworzenia fiszek",
-            ["🧠 Zrozum zdjęcie (Vision AI)", "✍️ Tekst i notatki", "📷 Klasyczny OCR"],
-            key="flashcard_generation_mode", horizontal=True,
-            help="Vision AI interpretuje strukturę notatek. OCR rozpoznaje głównie litery i może pomylić pismo odręczne.",
+        st.markdown("#### 1. Your study material")
+        uploaded = st.file_uploader(
+            "📷 Photo or screenshot of notes (optional)",
+            type=["png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "heic", "heif"],
+            accept_multiple_files=True, key="flashcards_images",
+            help="One or two pages at once, up to 12 MB each. AI also examines zoomed sections.",
         )
-        is_visual = mode.startswith("🧠")
-        is_ocr = mode.startswith("📷")
-        uploaded = None
-        if is_visual or is_ocr:
-            allowed_count = 2 if is_visual else 6
-            uploaded = st.file_uploader(
-                "Dodaj zdjęcia swoich notatek",
-                type=["png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "heic", "heif"],
-                accept_multiple_files=True, key="flashcards_images",
-                help=f"Maksymalnie {allowed_count} zdjęcia po 12 MB każde. W razie długiej strony warto dodać 2 czytelne zbliżenia.",
-            )
-            if uploaded:
-                st.caption(f"Zdjęć: {len(uploaded)} / {allowed_count}. Wzory, strzałki i podpisy powinny być czytelne.")
-            if is_visual:
-                st.info("✨ Model Vision otrzymuje obraz i analizuje hierarchię, powiązania i diagramy. Nie korzystamy tu z błędnego tekstu OCR. Każda fiszka będzie po angielsku.")
-                st.caption("Tryb wymaga osobnego, opcjonalnego modelu obrazu Ollama. Najlżejszy zajmuje około 1.9 GB. Nie pobieramy go automatycznie.")
-            else:
-                if st.button("📷 Odczytaj sam tekst (OCR)", disabled=not uploaded or len(uploaded)>6 or any(file.size>12*1024*1024 for file in uploaded)):
-                    try:
-                        with st.spinner("Odczytuję tekst lokalnie…"):
-                            texts = [recognize_image(file.name, file.getvalue()) for file in uploaded[:6]]
-                        old_text = st.session_state.get("flashcards_source", "").strip()
-                        st.session_state["flashcards_source"] = (old_text + "\n\n" + "\n\n".join(texts)).strip()[:16000]
-                        st.success("Przeczytaj tekst poniżej, popraw błędy OCR i dopiero wtedy twórz fiszki.")
-                    except (OCRError, OSError) as exc:
-                        st.error(str(exc))
+        source = st.text_area(
+            "Notes in text (optional)",
+            height=115, key="flashcards_source",
+            placeholder="Add your own explanation if some handwriting is difficult to read.",
+            help="You may add context, or use text on its own. Generated questions and answers remain English.",
+        )
+        picture_mode = bool(uploaded)
+        if picture_mode:
+            st.info("🧠 AI will analyze headings, relationships and zoomed sections. "
+                    "Illegible words will not block cards from the rest of the page.")
+            st.caption("Photographs are processed by Ollama on this Mac. The model may still make mistakes.")
+        with st.expander("🔧 Advanced: classical OCR (optional)"):
+            st.caption("For clear printed notes only. Not recommended for Olusia's handwriting.")
+            if st.button("Extract plain text with OCR", disabled=not uploaded or len(uploaded)>2):
+                try:
+                    with st.spinner("Odczytuję tekst…"):
+                        texts = [recognize_image(file.name, file.getvalue()) for file in uploaded]
+                    st.session_state["flashcards_source"] = (source + "\n\n" + "\n\n".join(texts)).strip()[:16000]
+                    st.success("OCR text is ready to review. You may remove the photos to generate only from text.")
+                except (OCRError, OSError) as exc:
+                    st.error(str(exc))
 
-        if not is_visual:
-            source = st.text_area(
-                "Źródło do fiszek (możesz też poprawić wynik OCR)",
-                height=200, key="flashcards_source",
-                placeholder="e.g. The axial skeleton includes the skull, vertebral column, ribs and sternum.",
-            )
-            st.caption(f"{len(source):,}/16 000 znaków. Fiszki będą po angielsku, nawet gdy źródło jest dwujęzyczne.")
-        else:
-            source = ""
-
-        st.markdown("#### 2. Jakie fiszki przygotować?")
-        left, center, right = st.columns(3)
-        with left:
-            count = st.slider("Liczba fiszek", 3, 30, 10)
-        with center:
-            level = st.selectbox("Poziom", ["Łatwy", "Standardowy", "Trudniejszy"], index=1)
-        with right:
-            if is_visual:
-                model = st.selectbox(
-                    "Model do rozumienia obrazów", VISION_MODELS,
-                    format_func=lambda name: {"qwen3-vl:2b": "Oszczędny — 2B (~1.9 GB)",
-                                              "qwen3-vl:4b": "Dokładniejszy — 4B (~3.3 GB)"}[name],
-                    help="Model 2B zajmuje mniej miejsca; 4B może lepiej czytać drobne diagramy.",
-                )
-            else:
-                model = st.selectbox(
-                    "Lokalny model AI", ["qwen2.5:3b", "qwen2.5:1.5b"],
-                    help="Modele tekstowe nie rozumieją układu zdjęcia. Użyj Vision AI do diagramów.",
-                )
+        st.markdown("#### 2. Create your cards")
+        a, b = st.columns(2)
+        with a:
+            count = st.slider("Number of cards", 3, 30, 10)
+        with b:
+            level = st.selectbox("Difficulty", ["Łatwy", "Standardowy", "Trudniejszy"], index=1,
+                                 format_func=lambda value: {"Łatwy": "Easy", "Standardowy": "Standard",
+                                                            "Trudniejszy": "Challenging"}[value])
         try:
             available = ollama_models()
-            if model in available or any(name.startswith(model + "-") for name in available):
-                st.caption("🟢 Model gotowy — lokalna Ollama odpowiada.")
+            if STUDIO_MODEL not in available:
+                st.warning("One-time setup needed: install the local model with 5_DOINSTALUJ_FISZKI.command "
+                           "or run: ollama pull " + STUDIO_MODEL + ". No other model is required.")
             else:
-                st.warning(f"Model {model} nie jest jeszcze pobrany. Zainstaluj go w Terminalu: ollama pull {model}. " +
-                           ("Dla trybu obrazowego Ollama musi mieć wersję 0.12.7 lub nowszą." if is_visual else ""))
+                st.caption("🟢 Olusia AI is ready on this MacBook.")
         except CardsError as exc:
             st.info(str(exc))
 
-        if is_visual:
-            too_many = not uploaded or len(uploaded) > 2 or any(file.size > 12*1024*1024 for file in uploaded)
-            if st.button("🧠 Zrozum notatkę i utwórz English flashcards", type="primary", disabled=too_many):
-                try:
-                    with st.spinner("AI analizuje schematy, hierarchię i związki między pojęciami… Na starszym MacBooku może to potrwać kilka minut."):
+        invalid_photos = picture_mode and (
+            len(uploaded) > 2 or any(file.size > 12 * 1024 * 1024 for file in uploaded))
+        valid_text = len(source.strip()) >= 35 and len(source) <= 16000
+        if st.button("✨ Create English flashcards", type="primary",
+                     disabled=invalid_photos or not (picture_mode or valid_text)):
+            try:
+                with st.spinner("Reading what is clear, analyzing arrows and diagrams, preparing English cards…"):
+                    if picture_mode:
                         result = generate_visual_flashcards(
                             [(file.name, file.getvalue()) for file in uploaded],
-                            count, level, model,
+                            count, level,
                         )
-                    for key in list(st.session_state):
-                        if key.startswith("draft_front_") or key.startswith("draft_back_"):
-                            st.session_state.pop(key, None)
-                    st.session_state["draft_flashcards"] = result.cards
-                    st.session_state["visual_note_structure"] = result.structure
-                    st.session_state["visual_note_uncertainties"] = result.uncertainties
-                    st.success(f"Prepared {len(result.cards)} English flashcards. Review them before saving.")
-                except CardsError as exc:
-                    st.error(str(exc))
-        else:
-            if st.button("✨ Generate English flashcards", type="primary",
-                         disabled=len(source.strip()) < 35 or len(source) > 16000):
-                try:
-                    with st.spinner("Creating English questions and answers with local AI…"):
-                        cards = generate_flashcards(source, count, level, model)
-                    for key in list(st.session_state):
-                        if key.startswith("draft_front_") or key.startswith("draft_back_"):
-                            st.session_state.pop(key, None)
-                    st.session_state["draft_flashcards"] = cards
-                    st.session_state.pop("visual_note_structure", None)
-                    st.session_state.pop("visual_note_uncertainties", None)
+                        cards = result.cards
+                        st.session_state["visual_note_structure"] = result.structure
+                        st.session_state["visual_note_uncertainties"] = result.uncertainties
+                        st.session_state["visual_note_review_flags"] = result.review_flags
+                        st.session_state["draft_needs_review"] = bool(cards)
+                    else:
+                        cards = generate_flashcards(source, count, level)
+                        st.session_state.pop("visual_note_structure", None)
+                        st.session_state.pop("visual_note_uncertainties", None)
+                        st.session_state.pop("visual_note_review_flags", None)
+                        st.session_state["draft_needs_review"] = False
+                for key in list(st.session_state):
+                    if key.startswith("draft_front_") or key.startswith("draft_back_"):
+                        st.session_state.pop(key, None)
+                st.session_state["draft_flashcards"] = cards
+                if cards:
                     st.success(f"Prepared {len(cards)} English flashcards. Review them before saving.")
-                except CardsError as exc:
-                    st.error(str(exc))
+                else:
+                    st.warning("AI couldn't identify a reliable fact yet. See the interpretation below, "
+                               "add a short explanation in the text field, or upload a closer screenshot.")
+            except CardsError as exc:
+                st.error(str(exc))
 
-        if st.session_state.get("visual_note_structure"):
-            with st.expander("🧩 What the AI understood about your notes", expanded=True):
-                st.write(st.session_state["visual_note_structure"])
-                if st.session_state.get("visual_note_uncertainties"):
-                    st.warning("**Unclear details — verify in your textbook:**")
-                    for note in st.session_state["visual_note_uncertainties"]:
-                        st.write("• " + note)
+        if "visual_note_structure" in st.session_state:
+            with st.expander("🧩 What the AI understood", expanded=True):
+                st.write(st.session_state.get("visual_note_structure") or
+                         "The model could not recognize the page structure clearly.")
+                for warning in st.session_state.get("visual_note_uncertainties", ()):
+                    st.caption("🔎 " + warning)
+                for warning in st.session_state.get("visual_note_review_flags", ()):
+                    st.warning(warning)
+                st.caption("Unclear details must be checked against your course notes. "
+                           "The model's evidence descriptions are not an independent verification.")
 
         draft = st.session_state.get("draft_flashcards", [])
         if draft:
@@ -149,7 +127,15 @@ def render_flashcards() -> None:
                         back = st.text_area("Tył (odpowiedź)", value=card.back, height=82, key=f"draft_back_{index}")
                     edits.append(Flashcard(front=front, back=back))
                 save = st.form_submit_button("💾 Zapisz zestaw na MacBooku", type="primary")
-            if save:
+            review_ok = True
+            if st.session_state.get("draft_needs_review"):
+                review_ok = st.checkbox(
+                    "I have checked the medical facts against my notes and corrected uncertain cards.",
+                    key="draft_medical_review_confirm",
+                )
+            if save and not review_ok:
+                st.warning("Please verify the medical facts and confirm before saving.")
+            if save and review_ok:
                 valid = [c for c in edits if c.front.strip() and c.back.strip()]
                 try:
                     _require_english_cards(valid)
@@ -157,6 +143,9 @@ def render_flashcards() -> None:
                     st.session_state.pop("draft_flashcards", None)
                     st.session_state.pop("visual_note_structure", None)
                     st.session_state.pop("visual_note_uncertainties", None)
+                    st.session_state.pop("visual_note_review_flags", None)
+                    st.session_state.pop("draft_needs_review", None)
+                    st.session_state.pop("draft_medical_review_confirm", None)
                     st.session_state["selected_deck"] = saved_id
                     st.success("Zapisano zestaw! Otwórz „Moje zestawy i nauka”, aby go powtarzać.")
                 except CardsError as exc:
