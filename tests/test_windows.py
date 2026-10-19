@@ -63,7 +63,7 @@ def test_windows_scripts_require_local_access_not_cloud():
     assert "--server.address=127.0.0.1" in launcher
     assert "--server.port=8501" in launcher
     ai = (ROOT / "3_INSTALL_AI_WINDOWS.bat").read_text(encoding="utf-8")
-    assert "ollama pull qwen3-vl:4b" in ai
+    assert "ollama pull qwen3-vl:4b-instruct" in ai
     assert "qwen2.5:" not in ai
     installer = (ROOT / "1_INSTALL_WINDOWS.bat").read_text(encoding="utf-8")
     assert "3_INSTALL_AI_WINDOWS.bat" in installer
