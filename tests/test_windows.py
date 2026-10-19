@@ -67,3 +67,19 @@ def test_windows_scripts_require_local_access_not_cloud():
     assert "qwen2.5:" not in ai
     installer = (ROOT / "1_INSTALL_WINDOWS.bat").read_text(encoding="utf-8")
     assert "3_INSTALL_AI_WINDOWS.bat" in installer
+
+
+
+def test_universal_update_keeps_older_macos_versions_compatible():
+    from dev.make_update import create as make_universal_update
+    windows_only = {"1_INSTALL_WINDOWS.bat", "2_START_WINDOWS.bat",
+                    "3_INSTALL_AI_WINDOWS.bat", "4_OPTIONAL_DEMUCS_WINDOWS.bat",
+                    "WINDOWS_README.txt"}
+    with tempfile.TemporaryDirectory() as temp:
+        zip_file = Path(temp) / "universal.zip"
+        make_universal_update(zip_file)
+        with zipfile.ZipFile(zip_file) as archive:
+            import json
+            manifest = json.loads(archive.read("manifest.json"))
+            assert not windows_only.intersection(manifest["files"])
+            assert {"app.py","updater.py","cards.py","VERSION"}.issubset(manifest["files"])
