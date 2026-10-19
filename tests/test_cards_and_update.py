@@ -474,7 +474,7 @@ def test_visual_notes_examine_actual_image_and_return_english_flashcards():
     assert len(imgs)==1
     assert base64.b64decode(imgs[0]).startswith(b"\xff\xd8")
     prompt=data["messages"][1]["content"]
-    assert "headings" in prompt and "ENGLISH" in prompt and "evidence" in prompt
+    assert "headings" in prompt and "English" in prompt and "evidence" in prompt
 
 
 def test_visual_notes_reject_bad_images_and_unsupported_claims():
