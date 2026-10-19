@@ -5,7 +5,7 @@ title Olusia AI Studio - One local AI engine
 echo.
 echo One model for handwritten notes, English flashcards
 echo and oral answer feedback.
-echo Model: qwen3-vl:4b (around 3.3 GB plus dependencies)
+echo Model: qwen3-vl:4b-instruct (around 3.3 GB plus dependencies)
 echo No other Ollama model is required by Learning Plus.
 echo.
 if not exist ".venv-core\Scripts\python.exe" (
@@ -30,7 +30,7 @@ echo Installing required light Python libraries...
 ".venv-core\Scripts\python.exe" -m pip install "fsrs>=6.0,<7" "Pillow>=10,<13"
 if errorlevel 1 goto failed
 echo Downloading model once. It will later work offline.
-ollama pull qwen3-vl:4b
+ollama pull qwen3-vl:4b-instruct
 if errorlevel 1 (
   echo If Ollama is not running, open the Ollama Windows app first.
   goto failed
