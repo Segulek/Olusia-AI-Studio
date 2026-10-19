@@ -79,7 +79,7 @@ def render_flashcards() -> None:
                     if picture_mode:
                         result = generate_visual_flashcards(
                             [(file.name, file.getvalue()) for file in uploaded],
-                            count, level,
+                            count, level, supplementary_text=source,
                         )
                         cards = result.cards
                         st.session_state["visual_note_structure"] = result.structure
