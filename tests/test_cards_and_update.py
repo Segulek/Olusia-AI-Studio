@@ -454,12 +454,12 @@ def test_visual_notes_examine_actual_image_and_return_english_flashcards():
     assert len(result.uncertainties)==1
     request=mocked.call_args.args[0]
     data=json.loads(request.data)
-    assert data["model"]=="qwen3-vl:2b"
+    assert data["model"]=="qwen3-vl:4b"
     imgs=data["messages"][1]["images"]
     assert len(imgs)==1
     assert base64.b64decode(imgs[0]).startswith(b"\xff\xd8")
     prompt=data["messages"][1]["content"]
-    assert "layout" in prompt and "English" in prompt and "evidence" in prompt
+    assert "headings" in prompt and "ENGLISH" in prompt and "evidence" in prompt
 
 
 def test_visual_notes_reject_bad_images_and_unsupported_claims():
@@ -478,8 +478,11 @@ def test_visual_notes_reject_bad_images_and_unsupported_claims():
     ungrounded={"message":{"content":json.dumps({"structure":"No readable labels", "uncertainties":["Unreadable"],
         "cards":[{"front":"What is the ulna?", "back":"A long bone of the forearm.", "evidence":""}]})}}
     with patch("cards.urlopen",return_value=BytesIO(json.dumps(ungrounded).encode())):
-        with pytest.raises(CardsError):
-            generate_visual_flashcards([("notes.png",image.getvalue())], 10, "Standardowy")
+        result = generate_visual_flashcards([("notes.png",image.getvalue())], 10, "Standardowy")
+    # Low-quality answers are visible as drafts for explicit manual review,
+    # instead of losing the whole page because "evidence" is missing.
+    assert len(result.cards) == 1
+    assert "no clear evidence" in result.review_flags[0]
 
 
 def test_text_generator_prompt_explicit_english_only():
@@ -489,3 +492,96 @@ def test_text_generator_prompt_explicit_english_only():
     prompt=json.loads(mocked.call_args.args[0].data)["messages"][1]["content"]
     assert "entirely in English" in prompt
     assert "Do not include Polish" in prompt
+
+
+
+def test_single_model_handles_text_images_and_oral_answers():
+    from cards import STUDIO_MODEL, SUPPORTED_MODELS, VISION_MODELS, oral_feedback
+    assert STUDIO_MODEL == "qwen3-vl:4b"
+    assert SUPPORTED_MODELS == VISION_MODELS == (STUDIO_MODEL,)
+    text_response = {"message": {"content": json.dumps({"cards": [
+        {"front":"What forms the axial skeleton?", "back":"Skull, vertebral column, ribs and sternum."}]})}}
+    with patch("cards.urlopen", return_value=BytesIO(json.dumps(text_response).encode())) as call:
+        generate_flashcards("The axial skeleton includes the skull, vertebral column, ribs and sternum.", 3, "Standardowy")
+        assert json.loads(call.call_args.args[0].data)["model"] == STUDIO_MODEL
+    oral_response = {"message":{"content":json.dumps({"ocena":"zgodna","komentarz":"Good."})}}
+    with patch("cards.urlopen", return_value=BytesIO(json.dumps(oral_response).encode())) as call:
+        oral_feedback("What forms the axial skeleton?", "Skull.", "Skull.")
+        assert json.loads(call.call_args.args[0].data)["model"] == STUDIO_MODEL
+
+
+def test_handwritten_page_is_split_into_full_image_and_magnified_halves():
+    import base64
+    from PIL import Image
+    from cards import generate_visual_flashcards
+    png = BytesIO()
+    Image.new("RGB", (1173, 1311), "white").save(png, "PNG")
+    response = {"message":{"content":json.dumps({
+        "structure":"A branch shows axial and appendicular skeletons.",
+        "uncertainties":["A tiny red annotation is unclear."],
+        "cards":[{"front":"What are the two major skeletal divisions?",
+                  "back":"Axial and appendicular.",
+                  "evidence":"Branch at the middle of the page"}]})}}
+    with patch("cards.urlopen", return_value=BytesIO(json.dumps(response).encode())) as call:
+        result=generate_visual_flashcards([("image.png", png.getvalue())], 6, "Standardowy",
+                                           supplementary_text="Axial skeleton is shown on the left.")
+    data=json.loads(call.call_args.args[0].data)
+    images=data["messages"][1]["images"]
+    assert len(images)==3
+    decoded=[Image.open(BytesIO(base64.b64decode(x))) for x in images]
+    assert decoded[0].height > decoded[1].height
+    assert decoded[1].width >= decoded[0].width
+    assert "Axial skeleton is shown on the left." in data["messages"][1]["content"]
+    assert len(result.cards)==1
+    assert "A tiny red" in result.uncertainties[0]
+
+
+def test_vision_only_disclaimer_retries_once_and_salvages_partial_notes():
+    from PIL import Image
+    from cards import generate_visual_flashcards
+    png=BytesIO()
+    Image.new("RGB",(1200,1200),"white").save(png,"PNG")
+    first={"message":{"content":json.dumps({
+        "structure":"The page shows bone function list.",
+        "uncertainties":["Some handwriting illegible."],"cards":[]})}}
+    second={"message":{"content":json.dumps({
+        "structure":"", "uncertainties": [],
+        "cards":[{"front":"What is haematopoiesis?", "back":"Blood cell formation."}]})}}
+    with patch("cards.urlopen", side_effect=[
+            BytesIO(json.dumps(first).encode()), BytesIO(json.dumps(second).encode())]) as mocked:
+        result=generate_visual_flashcards([("page.png",png.getvalue())],5,"Standardowy")
+    assert mocked.call_count == 2
+    assert len(result.cards)==1
+    assert "bone function" in result.structure
+    assert "illegible" in result.uncertainties[0]
+    assert any("no clear evidence" in flag for flag in result.review_flags)
+
+
+def test_vision_polish_one_card_does_not_block_english_cards():
+    from PIL import Image
+    from cards import generate_visual_flashcards
+    png=BytesIO()
+    Image.new("RGB",(500,500),"white").save(png,"PNG")
+    response={"message":{"content":json.dumps({
+        "structure":"Bone function list","uncertainties":[],
+        "cards":[{"front":"Jakie funkcje?","back":"Ochrona", "evidence":"left"},
+                 {"front":"What is a nutrient foramen?","back":"An opening for a nutrient vessel.","evidence":"right"}]})}}
+    with patch("cards.urlopen", return_value=BytesIO(json.dumps(response).encode())):
+        result=generate_visual_flashcards([("page.png",png.getvalue())],10,"Standardowy")
+    assert len(result.cards)==1
+    assert result.cards[0].front.startswith("What")
+    assert result.review_flags
+
+
+def test_empty_page_does_not_trigger_infinite_attempts_or_invent_cards():
+    from PIL import Image
+    from cards import generate_visual_flashcards
+    png=BytesIO()
+    Image.new("RGB",(500,500),"white").save(png,"PNG")
+    payload={"message":{"content":json.dumps({"structure":"Unreadable notes",
+                   "uncertainties":["Please crop"], "cards":[]})}}
+    with patch("cards.urlopen", side_effect=lambda *_args, **_kwargs: BytesIO(json.dumps(payload).encode())) as mocked:
+        result=generate_visual_flashcards([("page.png",png.getvalue())],10,"Standardowy")
+    assert mocked.call_count == 2
+    assert result.cards == []
+    assert "Unreadable" in result.structure
