@@ -96,6 +96,8 @@ def render_flashcards() -> None:
                     if key.startswith("draft_front_") or key.startswith("draft_back_"):
                         st.session_state.pop(key, None)
                 st.session_state["draft_flashcards"] = cards
+                # A new picture needs a fresh explicit medical verification.
+                st.session_state.pop("draft_medical_review_confirm", None)
                 if cards:
                     st.success(f"Prepared {len(cards)} English flashcards. Review them before saving.")
                 else:
@@ -145,7 +147,6 @@ def render_flashcards() -> None:
                     st.session_state.pop("visual_note_uncertainties", None)
                     st.session_state.pop("visual_note_review_flags", None)
                     st.session_state.pop("draft_needs_review", None)
-                    st.session_state.pop("draft_medical_review_confirm", None)
                     st.session_state["selected_deck"] = saved_id
                     st.success("Zapisano zestaw! Otwórz „Moje zestawy i nauka”, aby go powtarzać.")
                 except CardsError as exc:
