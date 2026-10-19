@@ -5,6 +5,7 @@ Only a local loopback Streamlit UI invokes these helpers.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 import math
 import os
 import sqlite3
@@ -24,6 +25,7 @@ def _run(cmd: list[str], *, timeout: int = 900) -> subprocess.CompletedProcess[s
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8", errors="replace",
             timeout=timeout,
         )
     except FileNotFoundError as exc:
@@ -151,6 +153,7 @@ def clip_audio(source: Path, destination: Path, start: float, end: float) -> Pat
     return destination
 
 
+@contextmanager
 def _bookmarks(db_path: Path):
     if db_path.is_symlink():
         raise ProcessingError("Niebezpieczna ścieżka bazy zakładek.")
@@ -158,16 +161,20 @@ def _bookmarks(db_path: Path):
     if db_path == BOOKMARK_DB:
         db_path.parent.chmod(0o700)
     connection = sqlite3.connect(db_path, timeout=5)
-    db_path.chmod(0o600)
-    connection.execute("""CREATE TABLE IF NOT EXISTS recording_bookmarks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        recording_sha TEXT NOT NULL,
-        title TEXT NOT NULL,
-        start REAL NOT NULL,
-        excerpt TEXT NOT NULL,
-        note TEXT NOT NULL DEFAULT ''
-    )""")
-    return connection
+    try:
+        db_path.chmod(0o600)
+        connection.execute("""CREATE TABLE IF NOT EXISTS recording_bookmarks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recording_sha TEXT NOT NULL,
+            title TEXT NOT NULL,
+            start REAL NOT NULL,
+            excerpt TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT ''
+        )""")
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def save_bookmark(recording_sha: str, title: str, start: float, excerpt: str,
