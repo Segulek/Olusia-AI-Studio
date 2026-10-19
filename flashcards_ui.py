@@ -91,12 +91,14 @@ def render_flashcards() -> None:
                         st.session_state["visual_note_structure"] = result.structure
                         st.session_state["visual_note_uncertainties"] = result.uncertainties
                         st.session_state["visual_note_review_flags"] = result.review_flags
+                        st.session_state["visual_note_diagnostics"] = result.diagnostics
                         st.session_state["draft_needs_review"] = bool(cards)
                     else:
                         cards = generate_flashcards(source, count, level)
                         st.session_state.pop("visual_note_structure", None)
                         st.session_state.pop("visual_note_uncertainties", None)
                         st.session_state.pop("visual_note_review_flags", None)
+                        st.session_state.pop("visual_note_diagnostics", None)
                         st.session_state["draft_needs_review"] = False
                 for key in list(st.session_state):
                     if key.startswith("draft_front_") or key.startswith("draft_back_"):
@@ -107,8 +109,12 @@ def render_flashcards() -> None:
                 if cards:
                     st.success(f"Prepared {len(cards)} English flashcards. Review them before saving.")
                 else:
-                    st.warning("AI couldn't identify a reliable fact yet. See the interpretation below, "
-                               "add a short explanation in the text field, or upload a closer screenshot.")
+                    st.error(
+                        "The local AI returned no usable flashcards. This does NOT mean "
+                        "your handwriting is unreadable. See AI Diagnostics below: "
+                        "the model may have returned empty JSON or no text. "
+                        "You can retry, restart Ollama or ask for help using the diagnostics."
+                    )
             except CardsError as exc:
                 st.error(str(exc))
 
@@ -122,6 +128,11 @@ def render_flashcards() -> None:
                     st.warning(warning)
                 st.caption("Unclear details must be checked against your course notes. "
                            "The model's evidence descriptions are not an independent verification.")
+            if st.session_state.get("visual_note_diagnostics"):
+                with st.expander("🛠️ AI Diagnostics — copy these lines if the image fails"):
+                    st.code("\n".join(st.session_state["visual_note_diagnostics"]), language="text")
+                    st.caption("The report contains only request counts and failure categories, "
+                               "not your photo, private notes or model output.")
 
         draft = st.session_state.get("draft_flashcards", [])
         if draft:
@@ -152,6 +163,7 @@ def render_flashcards() -> None:
                     st.session_state.pop("visual_note_structure", None)
                     st.session_state.pop("visual_note_uncertainties", None)
                     st.session_state.pop("visual_note_review_flags", None)
+                    st.session_state.pop("visual_note_diagnostics", None)
                     st.session_state.pop("draft_needs_review", None)
                     st.session_state["selected_deck"] = saved_id
                     st.success("Zapisano zestaw! Otwórz „Moje zestawy i nauka”, aby go powtarzać.")

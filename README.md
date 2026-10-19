@@ -1,5 +1,18 @@
-# 🌷 Olusia AI Studio 2.8.1 — poprawka rozumienia pisma odręcznego
+# Olusia AI Studio 2.8.2 — better handwritten-note recovery and diagnostics
 
+If the local vision model generates zero cards, the application now tries a **second method using the SAME qwen3-vl:4b**: it first reads short, clearly visible English medical facts as ordinary text without forcing a JSON flashcard response, then turns those statements into English flashcards. No second model, cloud service or new large download.
+
+- Handles common alternative fields in model results: `flashcards`, `question`, `answer`.
+- Displays counts of model responses, JSON errors and empty results under **AI Diagnostics**, instead of incorrectly claiming the student's handwriting is unreadable.
+- Shows a medical review warning when fallback flashcards come from an AI-extracted interpretation. Never silently saves generated cards.
+- Still uses sequential photo crops, `think: false`, and a local model on `127.0.0.1:11434`.
+- Keeps old decks and the macOS/Windows local backup database unchanged.
+
+**Privacy:** diagnostic details contain counts and error categories only, not student pictures, text or answers. The photo is never added to GitHub.
+
+**Limitation:** CI simulates Ollama responses; it does not run the 3.3 GB model on Olusia's Mac. If the new fallback also returns no cards, share the short text from the **AI Diagnostics** expander, plus `ollama --version` and `ollama list`, so we can identify the actual cause.
+
+---
 Poprawiliśmy błędy analizy zdjęć w jednym lokalnym modelu **qwen3-vl:4b**. Obsługa zdjęć jest nadal prywatna, bez chmury, a **fiszki są w całości po angielsku**.
 
 - Model Ollama otrzymuje teraz jawne **`think: false`**. Wcześniej odpowiedzi modeli zdolnych do reasoning mogły pojawiać się jako puste pole `message.content`.
