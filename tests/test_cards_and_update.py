@@ -225,6 +225,8 @@ def test_update_publisher_is_pinned_and_csv_formula_safe():
 
 def test_database_file_permissions_are_private():
     import os
+    if os.name == "nt":
+        pytest.skip("Windows NTFS ACLs are not represented by POSIX permission bits.")
     with tempfile.TemporaryDirectory() as tmp:
         db=Path(tmp)/'data'/'fiszki.sqlite3'
         save_deck('Anatomia',[Flashcard('Czym jest komórka?','Podstawowa jednostka.')],db)
