@@ -1,5 +1,24 @@
-# 🌷 Olusia AI Studio 2.8.4 — one installed AI model, no blocking
+# 🌷 Olusia AI Studio 2.9.0 — nawet 30 fiszek ze zdjęcia
 
+Olusia może teraz wybrać **od 3 do 30 fiszek** zarówno z tekstu, jak i ze zdjęcia notatek. Wcześniej tryb fotograficzny tworzył maksymalnie 5 fiszek niezależnie od ustawienia suwaka.
+
+## Jak to działa
+
+- Lokalny **Qwen3-VL 4B Instruct** (lub już zainstalowany starszy wariant 4B) najpierw odczytuje krótkie fakty medyczne **w porcjach maksymalnie po 5**, bez proszenia od razu o duży JSON.
+- Jeśli jedna porcja nie wystarcza, aplikacja przegląda kolejne powiększenia i w razie potrzeby wykonuje drugie podejście z listą faktów, które już zna, aby ograniczyć powtórzenia.
+- Następnie tworzy angielskie fiszki **partiami po maksymalnie 5 pytań**. Jest to ważne, bo wcześniejsze duże odpowiedzi potrafiły wyczerpać limit tokenów i zablokować wynik.
+- Program usuwa dosłowne duplikaty faktów i pytań. Gdy jedna partia się nie powiedzie, wcześniejsze prawidłowo wygenerowane fiszki pozostają.
+- Żądana liczba to **maksimum**, nie obietnica: ze strony zawierającej tylko 6 czytelnych faktów model nie powinien wymyślać 20 kolejnych. **Olusia sprawdza fakty medyczne przed zapisem.**
+- Dla wielu fiszek przetwarzanie potrwa dłużej. Liczba wywołań analizy obrazu jest ograniczona, żeby nie utknąć w nieskończonych próbach.
+- Jedno AI do tekstu, zdjęć i porównania odpowiedzi ustnych, fiszki wyłącznie po angielsku. Bez nowych modeli ani dużych bibliotek.
+
+## Aktualizacja Windows i macOS
+
+Jeśli działa już wersja 2.x, wybierz w aplikacji **Aktualizacje → Sprawdź → Pobierz → Zainstaluj**, a następnie uruchom ją ponownie. Zachowane zostaną stare fiszki, baza FSRS, nagrania i kopie danych.
+
+Na Windows lokalny model `qwen3-vl:4b-instruct` pozostaje wystarczający. Nie trzeba instalować modeli 8B ani ponownie pobierać Ollamy.
+
+---
 **Fixes the flashcard blocker after uninstalling the old Qwen model.** The app now automatically checks local Ollama models and prefers **`qwen3-vl:4b-instruct`**, but also accepts the older **`qwen3-vl:4b`** if that's the only model installed. The interface never asks Olusia to select between them.
 
 - Works for handwritten photo notes, text flashcards and oral exam feedback.

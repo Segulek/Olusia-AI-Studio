@@ -681,6 +681,7 @@ def _interpret_vision_result(result: dict, count: int) -> VisualNotesResult:
 
 def _vision_facts_with_diagnostics(
     model: str, image: str, count: int = 5,
+    avoid_facts: list[str] | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     """Read short, source-grounded facts, not a long JSON flashcard response.
 
@@ -688,6 +689,14 @@ def _vision_facts_with_diagnostics(
     diagnostics. A truncated model response may still contain usable facts.
     """
     count = max(1, min(count, 5))
+    # Previously recognized facts are only a deduplication hint, NOT evidence.
+    # Keep the prompt short to avoid exhausting Qwen's local context.
+    already = (avoid_facts or [])[-8:]
+    exclusions = (
+        " Already extracted elsewhere (DO NOT repeat; these are not evidence): "
+        + "; ".join(fact[:160] for fact in already)
+        if already else ""
+    )
     request = Request(
         f"{LOCAL_OLLAMA}/api/chat",
         data=json.dumps({
@@ -702,7 +711,8 @@ def _vision_facts_with_diagnostics(
                     "medical facts that are CLEARLY legible. One factual sentence per "
                     "line, each starting with '- '. No JSON, no explanation, no "
                     "transcription of the full page. Ignore illegible words. "
-                    "If nothing is legible, reply NO LEGIBLE FACTS.",
+                    "If nothing NEW is legible, reply NO LEGIBLE FACTS."
+                    + exclusions,
                  "images": [image]},
             ],
         }, ensure_ascii=False).encode("utf-8"),
@@ -776,39 +786,69 @@ def generate_visual_flashcards(
         raise CardsError("Dodatkowe objaśnienia są zbyt długie (maksymalnie 4000 znaków).")
 
     diagnostics: list[str] = []
-    uncertainties: list[str] = []
     facts: list[str] = []
+    cards: list[Flashcard] = []
+    flags: list[str] = []
+
+    def fact_key(text: str) -> str:
+        return re.sub(r"[^\w]+", " ", text.casefold(), flags=re.UNICODE).strip()
+
     try:
-        for name, contents in images:
-            regions = _visual_regions(name, contents)
-            for index, image in enumerate(regions):
-                if len(facts) >= min(5, count):
-                    break
-                try:
-                    extracted, stats = _vision_facts_with_diagnostics(
-                        model, image, count=min(5, count) - len(facts)
+        # The photo is prepared once; each Qwen request includes just one image.
+        # Each request asks for at most 5 facts, regardless of the total slider.
+        photos = [_visual_regions(name, contents) for name, contents in images]
+        max_image_calls = 8
+        image_calls = 0
+        seen_facts: set[str] = set()
+        for round_no in range(2):
+            if len(facts) >= count or image_calls >= max_image_calls:
+                break
+            # A second pass only makes sense when the first pass has already
+            # discovered several different facts. Don't waste time on blank
+            # pages or an Ollama model that keeps returning reasoning-only.
+            if round_no == 1 and len(facts) < 4:
+                break
+            new_this_round = 0
+            for page_regions in photos:
+                for region_index, image in enumerate(page_regions):
+                    if len(facts) >= count or image_calls >= max_image_calls:
+                        break
+                    image_calls += 1
+                    try:
+                        extracted, stats = _vision_facts_with_diagnostics(
+                            model, image, count=min(5, count - len(facts)),
+                            avoid_facts=facts if (facts or round_no) else None,
+                        )
+                    except (ValueError, KeyError, TypeError, UnicodeDecodeError):
+                        diagnostics.append(
+                            f"Pass {round_no+1}, region {region_index+1}: invalid_model_response."
+                        )
+                        continue
+                    existing_before = len(facts)
+                    for fact in extracted:
+                        key = fact_key(fact)
+                        if key and key not in seen_facts:
+                            facts.append(fact)
+                            seen_facts.add(key)
+                    gained = len(facts) - existing_before
+                    new_this_round += gained
+                    diagnostics.append(
+                        f"Pass {round_no+1}, region {region_index+1}: "
+                        f"done_reason={stats['done_reason']}, "
+                        f"content_chars={stats['content_chars']}, "
+                        f"thinking_chars={stats['thinking_chars']}, "
+                        f"output_tokens={stats['output_tokens']}, "
+                        f"readable_facts={gained}."
                     )
-                except (ValueError, KeyError, TypeError, UnicodeDecodeError):
-                    diagnostics.append(f"Region {index+1}: invalid_model_response.")
-                    continue
-                diagnostics.append(
-                    f"Region {index+1}: done_reason={stats['done_reason']}, "
-                    f"content_chars={stats['content_chars']}, "
-                    f"thinking_chars={stats['thinking_chars']}, "
-                    f"output_tokens={stats['output_tokens']}, "
-                    f"readable_facts={len(extracted)}."
-                )
-                existing = {fact.casefold() for fact in facts}
-                for fact in extracted:
-                    if fact.casefold() not in existing:
-                        facts.append(fact)
-                        existing.add(fact.casefold())
-                # Whole-page extraction is often sufficient. Do not spend
-                # CPU and memory on zoomed sections unless facts are scarce.
-                if index == 0 and len(facts) >= 3:
+                    # Keep low-count requests fast. Higher requested counts
+                    # continue to enlarged crops instead of stopping at 3-5.
+                    if round_no == 0 and count <= 5 and len(facts) >= 3:
+                        break
+                if len(facts) >= count or image_calls >= max_image_calls:
                     break
-                if len(facts) >= min(5, count):
-                    break
+            if not new_this_round:
+                break
+
         if not facts:
             return VisualNotesResult(
                 structure="No reliable facts were returned by the local model.",
@@ -820,33 +860,69 @@ def generate_visual_flashcards(
             )
 
         raw_source = "\n".join("- " + fact for fact in facts)
-        source = ("English medical study note facts:\n" + raw_source + "\n" + supplementary_text.strip()).strip()
-        # Generate in small sets to avoid a second output-limit failure.
-        target_count = min(5, count, len(facts))
-        try:
-            cards = generate_flashcards(
-                source, target_count, difficulty, model=model
+        existing_questions: set[str] = set()
+        failed_batches = 0
+        # Each batch is at most 5 questions. This is the critical guard
+        # against reintroducing Qwen's JSON output_limit failures.
+        for offset in range(0, len(facts), 5):
+            if len(cards) >= count:
+                break
+            batch = facts[offset:offset+5]
+            requested = min(5, len(batch), count - len(cards))
+            if requested <= 0:
+                break
+            context = supplementary_text.strip()[:1200]
+            source = ("English medical study note facts:\n"
+                      + "\n".join("- " + fact for fact in batch)
+                      + ("\nAdditional student context:\n" + context if context else ""))
+            try:
+                new_cards = generate_flashcards(
+                    source, requested, difficulty, model=model
+                )
+            except CardsError:
+                failed_batches += 1
+                diagnostics.append(
+                    f"Text-to-cards batch {offset//5 + 1}: failed; facts retained for review."
+                )
+                continue
+            added = 0
+            for card in new_cards:
+                key = fact_key(card.front)
+                if key not in existing_questions and len(cards) < count:
+                    cards.append(card)
+                    existing_questions.add(key)
+                    added += 1
+            diagnostics.append(
+                f"Text-to-cards batch {offset//5 + 1}: "
+                f"produced={added}, requested={requested}."
             )
-        except CardsError:
-            diagnostics.append("Text-to-cards: failed; readable facts preserved for review.")
+
+        if not cards:
             return VisualNotesResult(
-                structure="Recognized facts from the handwritten page:\n" + raw_source[:1800],
+                structure="Recognized facts from the handwritten page:\n" + raw_source[:2500],
                 uncertainties=("The model extracted facts but could not format flashcards. "
-                               "Check the facts below and try text-only generation.",),
-                cards=[], review_flags=("Verify the extracted medical facts.",),
+                               "Review the facts below and try text-only generation.",),
+                cards=[],
+                review_flags=("Verify the extracted medical facts.",),
                 diagnostics=tuple(diagnostics),
             )
-        diagnostics.append(
-            f"Text-to-cards: produced={len(cards)}, requested={target_count}."
+
+        flags.append(
+            "These flashcards were created from an AI reading of handwritten notes. "
+            "Verify every medical fact against the original page before saving."
         )
+        if len(cards) < count:
+            flags.append(
+                f"Created {len(cards)} of {count} requested cards. "
+                "Only identifiable facts were used; missing content was not invented."
+            )
+        if failed_batches:
+            flags.append("Some card batches failed, but successfully generated cards were retained.")
         return VisualNotesResult(
-            structure="Readable English medical facts:\n" + raw_source[:1800],
-            uncertainties=tuple(uncertainties),
+            structure="Readable English medical facts:\n" + raw_source[:2500],
+            uncertainties=(),
             cards=cards,
-            review_flags=(
-                "These flashcards were created from an AI reading of handwritten notes. "
-                "Verify every medical fact against the original page before saving.",
-            ),
+            review_flags=tuple(flags),
             diagnostics=tuple(diagnostics),
         )
     except HTTPError as exc:
