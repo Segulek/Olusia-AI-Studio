@@ -752,7 +752,7 @@ def test_vision_text_generation_failure_shows_readable_facts():
         result=generate_visual_flashcards([("nucleus.png",photo.getvalue())],5,"Standardowy")
     assert result.cards==[]
     assert "nucleus controls" in result.structure
-    assert any("Text-to-cards: failed" in x for x in result.diagnostics)
+    assert any("Text-to-cards batch 1: failed" in x for x in result.diagnostics)
 
 
 
@@ -776,3 +776,128 @@ def test_studio_model_selection_prefers_installed_instruct_without_user_choice()
         generate_flashcards("Chromatin comprises DNA and proteins inside the eukaryotic nucleus.",
                             3, "Standardowy", model=STUDIO_MODEL)
         assert json.loads(call.call_args.args[0].data)["model"] == STUDIO_MODEL
+
+
+
+def test_photo_generates_ten_english_cards_in_two_small_batches():
+    from PIL import Image
+    from cards import generate_visual_flashcards, STUDIO_MODEL
+    photo=BytesIO()
+    Image.new("RGB",(1121,1584),"white").save(photo,"PNG")
+    calls=[]
+    def fake(req, **_kwargs):
+        data=json.loads(req.data); calls.append(data)
+        model=data["model"]
+        assert model == STUDIO_MODEL
+        if data["messages"][1].get("images"):
+            image_count=sum(bool(item["messages"][1].get("images")) for item in calls)
+            assert image_count <= 2
+            assert data["options"]["num_predict"] == 1024
+            facts=[f"- Medical anatomy note identifies structure number {i} in this section."
+                   for i in range((image_count-1)*5+1, image_count*5+1)]
+            return BytesIO(json.dumps({"message":{
+                "content":"\n".join(facts)}, "done_reason":"stop", "eval_count":144}).encode())
+        assert data["format"]=="json"
+        assert data["think"] is False
+        assert data["options"]["num_predict"] <= 2400
+        text=data["messages"][1]["content"]
+        batch_number=sum(not bool(item["messages"][1].get("images")) for item in calls)
+        assert batch_number <= 2
+        cards=[{"front":f"What is anatomy note fact {i}?",
+                "back":f"A detail of anatomical structure {i}."}
+               for i in range((batch_number-1)*5+1,batch_number*5+1)]
+        assert text.count("Medical anatomy note") == 5
+        return BytesIO(json.dumps({"message":{"content":json.dumps({"cards":cards})}}).encode())
+    with patch("cards.urlopen", side_effect=fake):
+        result=generate_visual_flashcards([("notes.png",photo.getvalue())],10,"Standardowy")
+    assert len(result.cards)==10
+    assert len(calls)==4
+    assert all(c.front.startswith("What") for c in result.cards)
+    assert any("batch 2: produced=5" in line for line in result.diagnostics)
+
+
+def test_photo_twenty_cards_across_two_vision_rounds_and_four_text_batches():
+    from PIL import Image
+    from cards import generate_visual_flashcards, STUDIO_MODEL
+    photo=BytesIO()
+    Image.new("RGB",(1121,1584),"white").save(photo,"PNG")
+    vision_count=0
+    text_count=0
+    def fake(req, **_kwargs):
+        nonlocal vision_count, text_count
+        payload=json.loads(req.data)
+        assert payload["model"] == STUDIO_MODEL
+        if payload["messages"][1].get("images"):
+            vision_count += 1
+            assert vision_count <= 4
+            facts=[f"- The skeletal biology note describes clearly labeled structure {i}."
+                   for i in range((vision_count-1)*5+1, vision_count*5+1)]
+            if vision_count > 1:
+                prompt=payload["messages"][1]["content"]
+                assert "Already extracted" in prompt
+            return BytesIO(json.dumps({"message":{"content":"\n".join(facts)}}).encode())
+        text_count += 1
+        assert text_count <= 4
+        questions=[{"front":f"What is labeled structure number {i}?",
+                    "back":f"A named anatomical structure {i}."}
+                   for i in range((text_count-1)*5+1,text_count*5+1)]
+        return BytesIO(json.dumps({"message":{"content":json.dumps({"cards":questions})}}).encode())
+    with patch("cards.urlopen",side_effect=fake):
+        result=generate_visual_flashcards([("anatomy.png",photo.getvalue())],20,"Standardowy")
+    assert len(result.cards)==20
+    assert vision_count==4
+    assert text_count==4
+    assert any("Pass 2" in entry for entry in result.diagnostics)
+    assert all("?" in c.front for c in result.cards)
+
+
+def test_photo_partial_failure_preserves_first_five_cards():
+    from PIL import Image
+    from cards import generate_visual_flashcards
+    photo=BytesIO()
+    Image.new("RGB",(1121,1584),"white").save(photo,"PNG")
+    calls=[]
+    def fake(req, **_kwargs):
+        data=json.loads(req.data); calls.append(data)
+        if data["messages"][1].get("images"):
+            page_no=sum(bool(x["messages"][1].get("images")) for x in calls)
+            fact_text="\n".join(
+                f"- The medical note contains legible information about organ {n}."
+                for n in range((page_no-1)*5+1,page_no*5+1)
+            )
+            return BytesIO(json.dumps({"message":{"content":fact_text}}).encode())
+        batch=sum(not bool(x["messages"][1].get("images")) for x in calls)
+        if batch==2:
+            return BytesIO(json.dumps({"message":{"content":"invalid JSON"}}).encode())
+        cards=[{"front":f"What is organ structure {n}?",
+                "back":f"A named organ structure {n}."} for n in range(1,6)]
+        return BytesIO(json.dumps({"message":{"content":json.dumps({"cards":cards})}}).encode())
+    with patch("cards.urlopen",side_effect=fake):
+        result=generate_visual_flashcards([("notes.png",photo.getvalue())],10,"Standardowy")
+    assert len(result.cards)==5
+    assert any("batch 2: failed" in line for line in result.diagnostics)
+    assert any("Some card batches failed" in warning for warning in result.review_flags)
+
+
+def test_photo_duplicate_facts_do_not_create_extra_cards():
+    from PIL import Image
+    from cards import generate_visual_flashcards
+    photo=BytesIO()
+    Image.new("RGB",(1121,1584),"white").save(photo,"PNG")
+    calls=[]
+    def fake(req, **_kwargs):
+        payload=json.loads(req.data);calls.append(payload)
+        if payload["messages"][1].get("images"):
+            return BytesIO(json.dumps({"message":{"content":
+                "- Chromatin contains DNA and associated proteins.\n"
+                "- Chromatin contains DNA and associated proteins.\n"
+                "- The cell nucleus stores genetic information."}}).encode())
+        return BytesIO(json.dumps({"message":{"content":json.dumps({"cards":[
+            {"front":"What is chromatin?", "back":"DNA and associated proteins."},
+            {"front":"What does the nucleus store?", "back":"Genetic information."}
+        ]})}}).encode())
+    with patch("cards.urlopen",side_effect=fake):
+        result=generate_visual_flashcards([("notes.png",photo.getvalue())],15,"Standardowy")
+    assert len(result.cards)==2
+    assert len([p for p in calls if p["messages"][1].get("images")])==3
+    assert any("Created 2 of 15" in line for line in result.review_flags)
