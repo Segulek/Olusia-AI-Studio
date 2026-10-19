@@ -22,7 +22,7 @@ DATA_DIR = (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local
             if os.name == "nt" else Path.home() / "Library" / "Application Support" / "Olusia AI Studio")
 SETTINGS_PATH = DATA_DIR / "updates.json"
 
-VERSION = "2.8.4"
+VERSION = "2.9.0"
 DEFAULT_REPO = "Segulek/Olusia-AI-Studio"
 ALLOWED_FILES = {
     "app.py", "processor.py", "cards.py", "flashcards_ui.py", "ocr_local.py",
