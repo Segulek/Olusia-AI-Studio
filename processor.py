@@ -78,7 +78,7 @@ def make_wav(source: Path, destination: Path, *, sample_rate: int = 16000, chann
 def isolate_vocals(source: Path, job_folder: Path, stem_python: Path) -> Path:
     """Use a *separate virtualenv* for older Demucs and torchaudio dependencies."""
     if not stem_python.is_file():
-        raise ProcessingError("Nie zainstalowano modułu izolacji. Uruchom ponownie plik 1_ZAINSTALUJ.command.")
+        raise ProcessingError("Nie zainstalowano modułu izolacji. Doinstaluj moduł izolacji głosu (macOS: 1_ZAINSTALUJ.command, Windows: 4_OPTIONAL_DEMUCS_WINDOWS.bat).")
     prepared = make_wav(source, job_folder / "do_separacji.wav", sample_rate=44100, channels=2)
     stems_folder = job_folder / "separacja"
     _run([
@@ -122,7 +122,8 @@ def transcript_files(segments: Iterable[tuple[float, float, str]]) -> tuple[str,
 
 
 # Local recording bookmarks: only time markers and notes, never audio files.
-BOOKMARK_DB = Path.home() / "Library" / "Application Support" / "Olusia AI Studio" / "nagrania.sqlite3"
+BOOKMARK_DB = (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "Olusia AI Studio"
+               if os.name == "nt" else Path.home() / "Library" / "Application Support" / "Olusia AI Studio") / "nagrania.sqlite3"
 
 
 def filter_segments(segments, search: str, maximum: int = 30) -> list[tuple[float, float, str]]:
