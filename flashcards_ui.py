@@ -4,25 +4,61 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
+import importlib.util
 
 import streamlit as st
 
 from cards import (
     CardsError, Flashcard, cards_as_csv, delete_deck, generate_flashcards,
     get_cards, list_decks, ollama_models, save_deck, set_known,
-    generate_visual_flashcards, STUDIO_MODEL, select_studio_model, _require_english_cards,
+    generate_visual_flashcards, generate_pdf_flashcards, pdf_page_count, STUDIO_MODEL, select_studio_model, _require_english_cards,
 )
 from ocr_local import OCRError, recognize_image
 
 
 def render_flashcards() -> None:
     st.markdown("### 📚 Fiszki AI")
-    st.write("Dodaj zdjęcie odręcznych notatek albo wklej tekst. Jeden lokalny silnik AI przygotuje fiszki po angielsku.")
+    st.write("Dodaj PDF, zdjęcie odręcznych notatek albo wklej tekst. Jeden lokalny silnik AI przygotuje fiszki po angielsku.")
     st.caption("🇬🇧 English medical flashcards • One AI model • No manual model selection")
     create_tab, browse_tab = st.tabs(["✨ Create flashcards", "🗂️ Moje zestawy i nauka"])
 
     with create_tab:
         st.markdown("#### 1. Your study material")
+        pdf = st.file_uploader("📄 PDF lecture notes or textbook (optional)", type=["pdf"],
+                               key="flashcards_pdf", help="Up to 30 MB. Select up to 12 pages at a time.")
+        pdf_range = None
+        pdf_ready = False
+        pdf_visuals = False
+        if pdf is not None:
+            if importlib.util.find_spec("pymupdf") is None:
+                st.info("PDF support needs a small local library, not another AI model.")
+                if st.button("Install PDF support", key="install_pdf_support"):
+                    try:
+                        with st.spinner("Installing PDF support…"):
+                            subprocess.run([sys.executable, "-m", "pip", "install",
+                                            "PyMuPDF>=1.26,<2"], check=True, timeout=300)
+                        st.rerun()
+                    except (OSError, subprocess.SubprocessError):
+                        st.error("PDF setup failed. Check your internet connection and try again.")
+            else:
+                try:
+                    total = pdf_page_count(pdf.getvalue())
+                    st.caption(f"PDF contains {total} pages.")
+                    first = int(st.number_input("First page", min_value=1, max_value=total,
+                                                value=1, key="pdf_first_" + str(total)))
+                    last = int(st.number_input("Last page", min_value=first,
+                                               max_value=min(total, first+11),
+                                               value=min(total, first+11),
+                                               key=f"pdf_last_{total}_{first}"))
+                    pdf_range = (first, last)
+                    pdf_visuals = st.checkbox("Also read diagrams and illustrations on text pages",
+                                             help="Slower. Scanned pages without text are read automatically.")
+                    st.caption("Up to 12 text pages and 4 visual pages per run. Select smaller ranges for scans.")
+                    pdf_ready = True
+                except CardsError as exc:
+                    st.error(str(exc))
         uploaded = st.file_uploader(
             "📷 Photo or screenshot of notes (optional)",
             type=["png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp", "heic", "heif"],
@@ -36,6 +72,9 @@ def render_flashcards() -> None:
             help="You may add context, or use text on its own. Generated questions and answers remain English.",
         )
         picture_mode = bool(uploaded)
+        pdf_mode = pdf is not None
+        if pdf_mode and picture_mode:
+            st.warning("Remove photos to use PDF, or remove the PDF to use photos.")
         if picture_mode:
             st.info("🧠 AI reads legible medical facts in small batches, "
                     "then generates English flashcards in batches of up to five. "
@@ -84,17 +123,24 @@ def render_flashcards() -> None:
             len(uploaded) > 2 or any(file.size > 12 * 1024 * 1024 for file in uploaded))
         valid_text = len(source.strip()) >= 35 and len(source) <= 16000
         if st.button("✨ Create English flashcards", type="primary",
-                     disabled=invalid_photos or not (picture_mode or valid_text)):
+                     disabled=(invalid_photos or (pdf_mode and (not pdf_ready or picture_mode))
+                               or not (pdf_mode or picture_mode or valid_text))):
             try:
                 if selected_ai is None:
                     raise CardsError("Nie znaleziono lokalnego modelu AI. Uruchom: ollama pull " + STUDIO_MODEL)
                 with st.spinner("Reading the notes and creating up to "
                                 + str(count) + " English flashcards in safe batches…"):
-                    if picture_mode:
+                    if pdf_mode:
+                        result = generate_pdf_flashcards(
+                            pdf.getvalue(), *pdf_range, count, level, model=selected_ai,
+                            supplementary_text=source, include_visuals=pdf_visuals,
+                        )
+                    elif picture_mode:
                         result = generate_visual_flashcards(
                             [(file.name, file.getvalue()) for file in uploaded],
                             count, level, model=selected_ai, supplementary_text=source,
                         )
+                    if pdf_mode or picture_mode:
                         cards = result.cards
                         st.session_state["visual_note_structure"] = result.structure
                         st.session_state["visual_note_uncertainties"] = result.uncertainties

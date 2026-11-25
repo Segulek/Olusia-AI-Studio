@@ -1,3 +1,9 @@
+# Olusia AI Studio 2.10.0 — PDF flashcards
+
+Upload a PDF in Fiszki AI, choose up to 12 consecutive pages, and request 3–30 English flashcards. Text is extracted locally; scans are rendered locally for the same Qwen model. Enable diagram reading for mixed pages. Maximum 30 MB, up to four visual pages per run. Existing installations can click Install PDF support once (internet required); no additional AI model. Review all medical facts before saving. Windows and macOS use the same update ZIP.
+
+---
+
 # 🌷 Olusia AI Studio 2.9.0 — nawet 30 fiszek ze zdjęcia
 
 Olusia może teraz wybrać **od 3 do 30 fiszek** zarówno z tekstu, jak i ze zdjęcia notatek. Wcześniej tryb fotograficzny tworzył maksymalnie 5 fiszek niezależnie od ustawienia suwaka.

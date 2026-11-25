@@ -942,3 +942,166 @@ def generate_visual_flashcards(
     except (KeyError, TypeError, ValueError, UnicodeDecodeError) as exc:
         raise CardsError("Model nie zwrócił prawidłowej odpowiedzi. "
                          "Zobacz AI Diagnostics i spróbuj ponownie.") from exc
+
+
+# Keep PDF support in an existing source file for older ZIP updaters.
+PDF_MAX_BYTES = 30 * 1024 * 1024
+PDF_MAX_SELECTED_PAGES = 12
+
+
+def _open_study_pdf(data: bytes):
+    if not isinstance(data, bytes) or not data or len(data) > PDF_MAX_BYTES:
+        raise CardsError("Choose a PDF file of up to 30 MB.")
+    try:
+        import pymupdf
+    except ImportError as exc:
+        raise CardsError("PDF support needs PyMuPDF. Use the PDF setup button.") from exc
+    try:
+        doc = pymupdf.open(stream=data, filetype="pdf")
+        if not doc.is_pdf or doc.needs_pass or not doc.page_count:
+            doc.close()
+            raise CardsError("The PDF is empty, invalid or password-protected. Use an unlocked PDF.")
+        return doc
+    except CardsError:
+        raise
+    except Exception as exc:
+        raise CardsError("Unable to open the PDF. Choose a valid, unlocked PDF.") from exc
+
+
+def pdf_page_count(data: bytes) -> int:
+    with _open_study_pdf(data) as doc:
+        return doc.page_count
+
+
+def generate_pdf_flashcards(
+    data: bytes, first_page: int, last_page: int, count: int,
+    difficulty: str, model: str = STUDIO_MODEL, supplementary_text: str = "",
+    include_visuals: bool = False,
+) -> VisualNotesResult:
+    """Read selected pages locally; use the installed Qwen for text and scans."""
+    if model not in SUPPORTED_MODELS or not 3 <= count <= 30:
+        raise CardsError("Invalid model or card count.")
+    if difficulty not in ("Łatwy", "Standardowy", "Trudniejszy"):
+        raise CardsError("Invalid difficulty.")
+    if len(supplementary_text) > 4000:
+        raise CardsError("Additional notes must be at most 4000 characters.")
+    if not 1 <= first_page <= last_page or last_page - first_page + 1 > PDF_MAX_SELECTED_PAGES:
+        raise CardsError("Select up to 12 consecutive PDF pages per generation.")
+
+    cards: list[Flashcard] = []
+    seen: set[str] = set()
+    diagnostics: list[str] = []
+    warnings: list[str] = []
+    sources: list[str] = []
+    text_calls = 0
+    vision_pages = 0
+    context = supplementary_text.strip()[:1200]
+
+    def add_cards(items: list[Flashcard]) -> int:
+        added = 0
+        for item in items:
+            key = re.sub(r"[^\w]+", " ", item.front.casefold()).strip()
+            if key and key not in seen and len(cards) < count:
+                seen.add(key)
+                cards.append(item)
+                added += 1
+        return added
+
+    with _open_study_pdf(data) as doc:
+        if last_page > doc.page_count:
+            raise CardsError("Selected pages are outside the PDF.")
+        for number in range(first_page, last_page + 1):
+            if len(cards) >= count:
+                break
+            remaining_pages = last_page - number + 1
+            target = min(count - len(cards),
+                         max(1, (count - len(cards) + remaining_pages - 1) // remaining_pages))
+            before = len(cards)
+            try:
+                page = doc[number - 1]
+                text = page.get_text("text", sort=True).strip()
+                if len(text) > 24000:
+                    warnings.append(f"Page {number}: only the first 24,000 characters were processed.")
+                text = text[:24000]
+            except Exception:
+                warnings.append(f"Page {number}: unable to read the page.")
+                diagnostics.append(f"Page {number}: read_failed.")
+                continue
+            if len(text) >= 35:
+                chunks: list[str] = []
+                current = ""
+                for word in text.split():
+                    if current and len(current) + len(word) + 1 > 3000:
+                        chunks.append(current)
+                        current = ""
+                    current = (current + " " + word).strip()
+                if current:
+                    chunks.append(current)
+                # Repeat bounded text requests if a short page has a larger
+                # card target. Duplicate questions are filtered on return.
+                batches = max(len(chunks), (target + 4) // 5)
+                batches = min(batches, target)
+                for index in range(batches):
+                    remaining = target - (len(cards) - before)
+                    if remaining <= 0 or len(cards) >= count:
+                        break
+                    if text_calls >= 24:
+                        warnings.append("Text processing limit reached. Select fewer pages to continue.")
+                        break
+                    chunk = chunks[min(len(chunks)-1, index * len(chunks) // batches)]
+                    requested = min(5, remaining, max(1, (remaining + batches-index-1)//(batches-index)))
+                    source = "PDF source page " + str(number) + ":\n" + chunk[:3000]
+                    if context:
+                        source += "\nAdditional student context:\n" + context
+                    text_calls += 1
+                    try:
+                        added = add_cards(generate_flashcards(source, requested, difficulty, model=model))
+                        diagnostics.append(f"Page {number}, text batch {index+1}: produced={added}.")
+                    except CardsError:
+                        diagnostics.append(f"Page {number}, text batch {index+1}: failed.")
+                        warnings.append(f"Page {number}: a text batch failed; other pages were retained.")
+                sources.append(f"Page {number}: PDF text.")
+                if batches < len(chunks):
+                    warnings.append(f"Page {number}: sampled text sections to fit the requested card count.")
+            if len(cards) < count and (len(text) < 35 or include_visuals):
+                if vision_pages >= 4:
+                    warnings.append(f"Page {number}: visual limit reached; select a smaller range.")
+                    continue
+                vision_pages += 1
+                try:
+                    import pymupdf
+                    rect = page.rect
+                    if rect.width <= 0 or rect.height <= 0:
+                        raise ValueError("Empty page")
+                    scale = min(2.5, 1800 / max(rect.width, rect.height))
+                    pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale),
+                                          colorspace=pymupdf.csRGB, alpha=False)
+                    image = pix.tobytes("png")
+                    del pix
+                    wanted = min(5, max(1, target - (len(cards) - before)), count - len(cards))
+                    result = generate_visual_flashcards(
+                        [(f"pdf-page-{number}.png", image)], max(3, wanted),
+                        difficulty, model=model, supplementary_text=context,
+                    )
+                    added = add_cards(result.cards[:wanted])
+                    diagnostics.append(f"Page {number}, visual: produced={added}.")
+                    diagnostics.extend(f"Page {number}: {line}" for line in result.diagnostics)
+                    sources.append(f"Page {number}: visual reading.")
+                    if not added:
+                        warnings.append(f"Page {number}: no new readable visual facts.")
+                except Exception:
+                    diagnostics.append(f"Page {number}: visual_failed.")
+                    warnings.append(f"Page {number}: visual reading failed; other cards were retained.")
+            if len(cards) == before:
+                warnings.append(f"Page {number}: no new cards generated.")
+
+    flags = ["Check every medical fact against the original PDF before saving."]
+    if len(cards) < count:
+        flags.append(f"Created {len(cards)} of {count} requested cards. Try a different page range for more material.")
+    return VisualNotesResult(
+        structure=f"PDF pages {first_page}–{last_page}.\n" + "\n".join(sources),
+        uncertainties=tuple(dict.fromkeys(warnings)),
+        cards=cards,
+        review_flags=tuple(flags),
+        diagnostics=tuple(diagnostics),
+    )

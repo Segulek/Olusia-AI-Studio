@@ -901,3 +901,57 @@ def test_photo_duplicate_facts_do_not_create_extra_cards():
     assert len(result.cards)==2
     assert len([p for p in calls if p["messages"][1].get("images")])==3
     assert any("Created 2 of 15" in line for line in result.review_flags)
+
+
+
+def test_pdf_text_flashcards_batches_and_page_range():
+    import pymupdf
+    from cards import generate_pdf_flashcards, pdf_page_count, Flashcard
+    with pymupdf.open() as doc:
+        for i in range(3):
+            page = doc.new_page()
+            page.insert_text((50, 70), f"Medical anatomy page {i+1}: the nucleus contains DNA and proteins.")
+        data = doc.tobytes()
+    assert pdf_page_count(data) == 3
+    requests = []
+    def fake(source, count, difficulty, model):
+        requests.append((source, count))
+        return [Flashcard(f"Question {len(requests)} number {i}?", "DNA and proteins.")
+                for i in range(count)]
+    with patch("cards.generate_flashcards", side_effect=fake):
+        result = generate_pdf_flashcards(data, 2, 3, 12, "Standardowy")
+    assert len(result.cards) == 12
+    assert all(count <= 5 for _, count in requests)
+    assert all("PDF source page 1:" not in source for source, _ in requests)
+    assert any("PDF source page 2:" in source for source, _ in requests)
+    assert any("PDF source page 3:" in source for source, _ in requests)
+    assert result.review_flags
+
+
+def test_pdf_scanned_page_uses_existing_vision_model():
+    import pymupdf
+    from cards import generate_pdf_flashcards, VisualNotesResult, Flashcard, STUDIO_MODEL
+    with pymupdf.open() as doc:
+        page = doc.new_page()
+        page.draw_rect(pymupdf.Rect(10, 10, 80, 80))
+        data = doc.tobytes()
+    reply = VisualNotesResult("", (), [Flashcard("What is shown?", "A diagram.")])
+    with patch("cards.generate_visual_flashcards", return_value=reply) as call:
+        result = generate_pdf_flashcards(data, 1, 1, 3, "Standardowy")
+    assert result.cards == reply.cards
+    assert call.call_args.kwargs["model"] == STUDIO_MODEL
+    assert call.call_args.args[0][0][1].startswith(b"\x89PNG")
+
+
+def test_pdf_invalid_or_out_of_range_is_rejected():
+    import pymupdf
+    from cards import pdf_page_count, generate_pdf_flashcards
+    with pytest.raises(CardsError):
+        pdf_page_count(b"not a pdf")
+    with pymupdf.open() as doc:
+        doc.new_page()
+        data = doc.tobytes()
+    with pytest.raises(CardsError):
+        generate_pdf_flashcards(data, 1, 2, 3, "Standardowy")
+    with pytest.raises(CardsError):
+        generate_pdf_flashcards(data, 1, 13, 3, "Standardowy")
