@@ -1038,7 +1038,7 @@ def generate_pdf_flashcards(
                 if current:
                     chunks.append(current)
                 # Repeat bounded text requests if a short page has a larger
-                # card target. Give the model earlier questions to avoid repeats.
+                # card target. Duplicate questions are filtered on return.
                 batches = max(len(chunks), (target + 4) // 5)
                 batches = min(batches, target)
                 for index in range(batches):
